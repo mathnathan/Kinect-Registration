@@ -16,11 +16,10 @@
 using namespace cv;
 
 // Shorten the name for easier typing
-typedef pair< Vec4f, Vec4f > match;
+typedef pair< Vec3f, Vec3f > match;
 typedef vector< match > matchList;
 matchList correspondences;
 match centroids;
-
 
 // Variables for Calculations and Loops
 const int NUM_CAMS = 2;
@@ -43,9 +42,9 @@ void setupGL( int argc, char** argv );
 void cbRender();
 void cbTimer( int ms );
 void cbReSizeGLScene( int Width, int Height);
-void keyPressed( unsigned char key, int x, int y);
-void mouseMoved( int x, int y);
-void mousePress( int button, int state, int x, int y);
+void cbKeyPressed( unsigned char key, int x, int y);
+void cbMouseMoved( int x, int y);
+void cbMousePress( int button, int state, int x, int y);
 
 // Called insde the display function
 void kernel();
@@ -57,14 +56,22 @@ void loadBuffers( int cameraIndx, unsigned int indices[window_height][window_wid
 // Computer Vision Functions
 Mat joinFrames( const Mat& img1, const Mat& img2 );
 matchList findFeatures( const Mat& img1, const Mat& img2 );
-void projectDepth( matchList& corrs );
 match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 );
-Mat calcRotation( matchList corrs );
-
+Mat calcRotation( match centr, matchList corrs );
+float getDepth( int cam, int x, int y );
+void printMat( const Mat& A );
 
 // Store the matrices from all cameras here
 vector<Mat> rgbCV;
 vector<Mat> depthCV;
+
+// Rotation Matrix
+Mat rot( 3, 3, CV_32F );
+
+// To know when registered
+bool REGISTERED = false;
+
+
 
 int main( int argc, char** argv ) {
 
@@ -105,9 +112,9 @@ void setupGL( int argc, char** argv ) {
     glutIdleFunc( &cbRender );
     glutReshapeFunc( &cbReSizeGLScene);
     cbReSizeGLScene( window_width, window_height);
-    glutKeyboardFunc( &keyPressed);
-    glutMotionFunc( &mouseMoved);
-    glutMouseFunc( &mousePress);
+    glutKeyboardFunc( &cbKeyPressed);
+    glutMotionFunc( &cbMouseMoved);
+    glutMouseFunc( &cbMousePress);
 
     // The time passed in here needs to be the same as waitKey() for OpenCV
     glutTimerFunc( 10, cbTimer, 10);
@@ -118,7 +125,7 @@ void setupGL( int argc, char** argv ) {
 
 }
 
-void keyPressed( unsigned char key, int x, int y ) {
+void cbKeyPressed( unsigned char key, int x, int y ) {
 
 	// Press esc to exit
     if ( key == 27 ) {
@@ -128,9 +135,9 @@ void keyPressed( unsigned char key, int x, int y ) {
     }
     if( key == 'f' ) {
 		correspondences = findFeatures( rgbCV[0], rgbCV[1] );
-		projectDepth( correspondences );
 		centroids = calcCentroids( correspondences, rgbCV[0], rgbCV[1] );
-		calcRotation( correspondences );
+		rot = calcRotation( centroids, correspondences );
+		REGISTERED = true;
 	}
     if ( key == 'w' )
         zoom *= 1.1f;
@@ -141,7 +148,7 @@ void keyPressed( unsigned char key, int x, int y ) {
     if ( key == 't' ) {}
 }
 
-void mouseMoved( int x, int y) {
+void cbMouseMoved( int x, int y) {
 
     if ( mx>=0 && my>=0) {
         rotangles[0] += y-my;
@@ -153,7 +160,7 @@ void mouseMoved( int x, int y) {
 
 }
 
-void mousePress( int button, int state, int x, int y) {
+void cbMousePress( int button, int state, int x, int y) {
 
     if ( button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
         mx = x;
@@ -168,8 +175,6 @@ void mousePress( int button, int state, int x, int y) {
 
 void cbRender() {
 
-    short* depthGL = 0;
-    unsigned char* rgbGL = 0;
     unsigned int indices[window_height][window_width];
     short xyz[window_height][window_width][3];
 
@@ -191,9 +196,15 @@ void cbRender() {
         glScalef( zoom,zoom,1 );
         glTranslatef( 0,0,-3.5 );
         glRotatef( rotangles[0], 1,0,0 );
-        glRotatef( (cam*angle_between_cams)+rotangles[1], 0,1,0 );
+		glRotatef( (cam*angle_between_cams)+rotangles[1], 0,1,0 );
         glTranslatef( 0,0,1.5 );
 
+		if( true ) {	
+			if( cam == 0 ) 
+				glTranslatef( -centroids.first[0]/640.0f, -centroids.first[1]/480.0f, -centroids.first[2] );
+			else
+				glTranslatef( -centroids.second[0]/640.0f, -centroids.second[1]/480.0f, -centroids.second[2] );
+		}
 //------------------------------
         loadVertexMatrix();
 //------------------------------
@@ -217,7 +228,8 @@ void cbRender() {
         // ---------------
         glEnableClientState( GL_VERTEX_ARRAY );
         glVertexPointer( 3, GL_SHORT, 0, xyz );
-        glEnableClientState( GL_TEXTURE_COORD_ARRAY ); glTexCoordPointer( 3, GL_SHORT, 0, xyz );
+        glEnableClientState( GL_TEXTURE_COORD_ARRAY ); 
+		glTexCoordPointer( 3, GL_SHORT, 0, xyz );
 
         // ---------------
         glEnableClientState( GL_VERTEX_ARRAY );
@@ -262,9 +274,9 @@ void kernel() {
 		// If someone presses a button while a cv window 
 		// is in the foreground we want the behavior to
 		// be the same as for the OpenGL window, so call 
-		// OpenGL's keyPressed callback function
+		// OpenGL's cbKeyPressed callback function
 		if( key != -1 ) 
-			keyPressed( key, 0, 0 );
+			cbKeyPressed( key, 0, 0 );
 		CVWindows_Open = 1;
     }
     else {
@@ -306,18 +318,14 @@ void loadBuffers( int cameraIndx,
     rgbCV.push_back( freenect_sync_get_rgb_cv(cameraIndx) );
     depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
 
-    // shouldn't need to make a tmp...
-
-    // Switched to loading depth from OpenCV (It's much faster, somehow)
-    for ( int i = 0; i < window_height; i++) {
-        for ( int j = 0; j < window_width; j++) {
-            xyz[i][j][0] = j;
-            xyz[i][j][1] = i;
-            xyz[i][j][2] = *( (short *)(depthCV[cameraIndx].data + 
-							depthCV[cameraIndx].step[0]*i + depthCV[cameraIndx].step[1]*j));
-            indices[i][j] = i*window_width+j;
-        }
-    }
+	for ( int i = 0; i < window_height; i++) {
+		for ( int j = 0; j < window_width; j++) {
+			xyz[i][j][0] = j;
+			xyz[i][j][1] = i;
+			xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
+			indices[i][j] = i*window_width+j;
+		}
+	}
 }
 
 // Do the projection from u,v,depth to X,Y,Z directly in an opengl matrix
@@ -434,7 +442,7 @@ matchList findFeatures( const Mat& img1, const Mat& img2 ) {
         char c = waitKey( 0);
         if( c == 'y' || c == 'Y' ) {
             // Store the correspondences in a vector of pairs, where the members of each pair are points
-            corrs.push_back( match( Vec4f(pt1.x,pt1.y,1,1), Vec4f(pt2.x,pt2.y,1,1) ) );
+            corrs.push_back( match( Vec3f(pt1.x,pt1.y,1), Vec3f(pt2.x,pt2.y,1) ) );
             // Calculate the slope of the line between these, to filter out bad future matches
             float slp = (transpt2.y-transpt1.y)/(transpt2.x-transpt1.x);
             totSlope = slp; 
@@ -501,12 +509,15 @@ matchList findFeatures( const Mat& img1, const Mat& img2 ) {
         char c = waitKey(0);
         if( c == 'y' || c == 'Y' ) {
             // Store the correspondences in a vector of pairs, where the members of each pair are points
-            corrs.push_back( match( Vec4f(pt1.x,pt1.y,1,1), Vec4f(pt2.x,pt2.y,1,1) ) );
+            corrs.push_back( match( Vec3f(pt1.x,pt1.y,1), Vec3f(pt2.x,pt2.y,1) ) );
             totSlope += slp;
             printf("-------------------MACTH ACCEPTED------------------\n");
             printf("(x1, y1) (x2, y2) = (%f,%f) (%f,%f)\n", transpt1.x, transpt1.y, transpt2.x, transpt2.y);
             printf("pt = %d, slope = %f\n",i,slp);
         }
+		else if( c == 'q' ) {
+			break;
+		}
         else printf("-------------------MATCH DENIED---------------\n");
     }
 
@@ -523,19 +534,24 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
 
     printf( "\n\nCalculating the centroids for each cloud of correspondences\n" );
 
-    Vec4f centr1(0,0,0,0), centr2(0,0,0,0);
+    Vec3f centr1(0,0,0), centr2(0,0,0);
+	float z1, z2;
 
     for( int i = 0; i < (int)corrs.size(); i ++ ) {
 
         // First image 
         centr1[0] += corrs[i].first[0]; 
         centr1[1] += corrs[i].first[1]; 
-        centr1[2] += corrs[i].first[2]; 
+		//z1 = (float)depthCV[0].at<short>( (int)centr1[0], (int)centr1[1] );
+		z1 = getDepth( 0, (int)centr1[0], (int)centr1[1] );
+        centr1[2] += z1; 
 
         // Second image
         centr2[0] += corrs[i].second[0];
         centr2[1] += corrs[i].second[1];
-        centr2[2] += corrs[i].second[2]; 
+		//z1 = (float)depthCV[1].at<short>( (int)centr2[0], (int)centr2[1] );
+		z1 = getDepth( 1, (int)centr2[0], (int)centr2[1] );
+        centr2[2] += z2; 
 
     }
 
@@ -555,7 +571,7 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
         printf( "%d: (%f,%f)\n", i, corrs[i].first[0], corrs[i].first[1] );
     printf( "\nCorrespondence points in Image 2\n" );
     for( int i = 0; i < (int)corrs.size(); i++ ) 
-        printf( "%d: (%f,%f)\n\n", i, corrs[i].second[0], corrs[i].second[1] );
+        printf( "%d: (%f,%f)\n", i, corrs[i].second[0], corrs[i].second[1] );
 
 // Put both images side by side in one image
     Mat rslt = joinFrames( img1, img2 );
@@ -571,119 +587,131 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
     circle( rslt, Point2f(centr1[0],centr1[1]), 3, Scalar(0,0,255), 1, CV_AA );
     circle( rslt, Point2f(centr2[0],centr2[1])+Point2f(window_width,0), 3, Scalar(0,0,255), 1, CV_AA );
 
-    printf("Centroid 1 (x,y) = (%f,%f)\n", centr1[0], centr1[1]);
-    printf("Centroid 2 (x,y) = (%f,%f)\n", centr2[0], centr2[1]);
+    printf("\nCentroid 1 (x,y,z) = (%f,%f,%f)\n", centr1[0], centr1[1], centr1[2]);
+    printf("Centroid 2 (x,y,z) = (%f,%f,%f)\n\n", centr2[0], centr2[1], centr2[2]);
     imshow("Centroids", rslt);
 
     waitKey(0);
 
-	cvDestroyWindow("Centroids");
-	cvDestroyWindow("SIFT Matches");
-	cvDestroyWindow("Matching Correspondences");
-
     return centroids;
-
 } 
 
-void projectDepth( matchList& corrs ) {
-
-    float fx = 594.21f;
-    float fy = 591.04f;
-    float a = -0.0030711f;
-    float b = 3.3309495f;
-    float cx = 339.5f;
-    float cy = 242.7f;
-
-	// required to find projected depth
-	float mat[16] = { 1/fx,     0,  0, 0,
-					  0,    -1/fy,  0, 0,
-					  0,       0,  0, a,
-					  -cx/fx, cy/fy, -1, b };
-
-	Mat projectionMat( 4, 4, CV_32F, mat );
-	Mat P1 = Mat::ones( 4, corrs.size(), CV_32F );
-	Mat P2 = Mat::ones( 4, corrs.size(), CV_32F );
-
-	//printf("Proj.type = %d\n", projectionMat.type());
-	//printf("P1.type = %d\n", P1.type());
-	
+Mat calcRotation( match centr, matchList corrs ) {
 #if 1
+
+	Mat P = Mat::ones( 3, corrs.size(), CV_32F );
+	Mat Q = Mat::ones( 3, corrs.size(), CV_32F );
 
 	// This is retarded... Need to restructure
 	for( int pt = 0; pt < corrs.size(); pt++ ) {
 		// first point cloud
 		float x = corrs[pt].first[0]; 
 		float y = corrs[pt].first[1];
-		float d = depthCV[0].at<float>( (int)x, (int)y );
-		P1.at<float>(0,pt) = x; 
-		P1.at<float>(1,pt) = y; 
-		P1.at<float>(2,pt) = d; 
+		//float d = (float)depthCV[0].at<short>( (int)x, (int)y );
+		float d = getDepth( 0, (int)x, (int)y );
+		P.at<float>(0,pt) = x-centr.first[0]; 
+		P.at<float>(1,pt) = y-centr.first[1]; 
+		P.at<float>(2,pt) = d; 
 		// second point cloud
 		float x2 = corrs[pt].second[0]; 
 		float y2 = corrs[pt].second[1];
-		float d2 = depthCV[1].at<float>( (int)x2, (int)y2 );
-		P2.at<float>(0,pt) = x2; 
-		P2.at<float>(1,pt) = y2; 
-		P2.at<float>(2,pt) = d2; 
-	}
-
-	// Multiply the points by the 
-	// projection matrix
-	Mat newCorrs1 = projectionMat*P1;	
-	Mat newCorrs2 = projectionMat*P2;	
-
-	vector< pair< Vec4f, Vec4f > > actCoors;
-
-	for( int pt = 0; pt < corrs.size(); pt++ ) {
-		Vec4f point1( newCorrs1.col(pt) );
-		Vec4f point2( newCorrs2.col(pt) );
-		pair< Vec4f, Vec4f > cor( point1, point2 );
-		actCoors.push_back( cor );
+		//float d2 = (float)depthCV[1].at<short>( (int)x2, (int)y2 );
+		float d2 = getDepth( 1, (int)x2, (int)y2 );
+		Q.at<float>(0,pt) = x2-centr.second[0]; 
+		Q.at<float>(1,pt) = y2-centr.second[1]; 
+		Q.at<float>(2,pt) = d2; 
 	}
 	
-#endif
-
-
-}
-
-#if 1
-Mat calcRotation( matchList corrs ) {
-
-
-	Mat P1 = Mat::ones( 4, corrs.size(), CV_32F );
-	Mat P2 = Mat::ones( 4, corrs.size(), CV_32F );
-
-	// This is retarded... Need to restructure
-	for( int pt = 0; pt < corrs.size(); pt++ ) {
-		// first point cloud
-		float x = corrs[pt].first[0]; 
-		float y = corrs[pt].first[1];
-		float d = depthCV[0].at<float>( (int)x, (int)y );
-		P1.at<float>(0,pt) = x; 
-		P1.at<float>(1,pt) = y; 
-		P1.at<float>(2,pt) = d; 
-		// second point cloud
-		float x2 = corrs[pt].second[0]; 
-		float y2 = corrs[pt].second[1];
-		float d2 = depthCV[1].at<float>( (int)x2, (int)y2 );
-		P2.at<float>(0,pt) = x2; 
-		P2.at<float>(1,pt) = y2; 
-		P2.at<float>(2,pt) = d2; 
-	}
+	Mat Qt;
+	transpose( Q, Qt );
+	Mat PQt = P*Qt;
 	
-    SVD P1svd( P1 );
-    SVD P2svd( P2 );
+	//printf(" corrs[0].first[0] = %f\n", corrs[0].first[0] );
+	//printf(" corrs[0].first[1] = %f\n", corrs[0].first[1] );
+	//printf(" corrs[0].first[2] = %f\n", corrs[0].first[2] );
+	//printf(" corrs[0].first[3] = %f\n", corrs[0].first[3] );
 
-	Mat rot1 = P1svd.u*P1svd.vt;
-	Mat rot2 = P2svd.u*P2svd.vt;
+	printf(" P.rows = %d\n", P.rows );
+	printf(" P.cols = %d\n\n", P.cols );
+	
+	printMat( P );	
 
-	printf(" rot1.cols = %d\n", rot1.cols );
-	printf(" rot2.cols = %d\n", rot2.cols );
-	printf(" rot1.rows = %d\n", rot1.rows );
-	printf(" rot2.rows = %d\n", rot2.rows );
-	printf(" rot1.type = %d\n", rot1.type() );
-	printf(" rot2.type = %d\n", rot2.type() );
+	printf("\n Q.rows = %d\n", Q.rows );
+	printf(" Q.cols = %d\n", Q.cols );
 
-	return rot1;
-}
+	printMat( Q );	
+
+	printf(" PQt.rows = %d\n", PQt.rows );
+	printf(" PQt.cols = %d\n", PQt.cols );
+
+	SVD svd( PQt );
+	
+	printf(" svd.u.rows = %d\n", svd.u.rows );
+	printf(" svd.u.cols = %d\n", svd.u.cols );
+
+	printMat( svd.u );	
+
+	printf(" svd.vt.rows = %d\n", svd.vt.rows );
+	printf(" svd.vt.cols = %d\n", svd.vt.cols );
+	
+	printMat( svd.vt );	
+
+
+	Mat R = svd.u*svd.vt;
+
+	printf(" R.rows = %d\n", R.rows );
+	printf(" R.cols = %d\n", R.cols );
+
+	printMat( R );	
+
+	return R;
 #endif 
+}
+
+void printMat( const Mat& A ) {
+
+    printf("\n| ");
+    for(int i = 0; i < A.rows; i++) {
+        if(i > 0 && i < A.rows) {
+            printf("|\n");
+            printf("| ");
+        }
+        for(int j = 0; j < A.cols; j++) {
+            printf( "%f ", A.at<float>(i,j) );
+        }
+    }
+    printf("|\n");
+}
+
+// Definitely need to come up with a better
+// way to do this...
+float getDepth( int cam, int x, int y ) {
+
+	float d = (float)depthCV[cam].at<short>(x,y);
+	
+	if( d == 2047 ) 
+		d = (float)depthCV[cam].at<short>(x,y+1);
+	
+	if( d == 2047 ) 
+		d = (float)depthCV[cam].at<short>(x,y-1);
+
+	if( d == 2047 ) 
+		d = (float)depthCV[cam].at<short>(x+1,y);
+
+	if( d == 2047 ) 
+		d = (float)depthCV[cam].at<short>(x-1,y);
+
+	if( d == 2047 )
+		d = (float)depthCV[cam].at<short>(x-1,y-1);
+
+	if( d == 2047 )
+		d = (float)depthCV[cam].at<short>(x-1,y+1);
+
+	if( d == 2047 )
+		d = (float)depthCV[cam].at<short>(x+1,y-1);
+
+	if( d == 2047 )
+		d = (float)depthCV[cam].at<short>(x+1,y+1);
+
+	return d;
+}
