@@ -64,6 +64,7 @@ void cbMousePress( int button, int state, int x, int y);
 
 // Called insde the display function
 void kernel();
+void rotation();
 void loadVertexMatrix();
 void loadRGBMatrix();
 void noKinectQuit();
@@ -167,8 +168,9 @@ void cbKeyPressed( unsigned char key, int x, int y ) {
         REGISTERED = false;
     }
     if( key == 't' ) {
-        float r[] = {0,0,1,0,1,0,-1,0,0};
-        rot = Mat( 3, 3, CV_32F, r );
+        //float r[] = {0,0,1,0,1,0,-1,0,0};
+        float r[] = {1,0,0,0,1,0,0,0,1};
+        rot = Mat( 3, 3, CV_32F, r ).clone();
         REGISTERED = true;
     }
     if( key == 'f' ) {
@@ -233,7 +235,7 @@ void cbRender() {
         loadBuffers( cam, &indices[cam*window_height], &xyz[cam*window_height], &rgb[cam*window_height] ); 
 
     }
-    glPushMatrix();
+    //glPushMatrix();
     glScalef( zoom,zoom,1 );
     glTranslatef( 0,0,-3.5 );
     glRotatef( rotangles[0], 1,0,0 );
@@ -247,6 +249,7 @@ void cbRender() {
         glPushMatrix();
         glColor3f(0,1,0);
         loadVertexMatrix();
+        //rotation();
         glTranslatef( centroids.first[0],centroids.first[1],centroids.first[2] );
         glBegin( GL_LINE_LOOP );/// don't workglPointSize( 0.0 );
         GLUquadricObj *quadric;
@@ -268,6 +271,7 @@ void cbRender() {
         glPushMatrix();
         glColor3f(1,0,0);
         loadVertexMatrix();
+        //rotation();
         glTranslatef( centroids.second[0],centroids.second[1],centroids.second[2] );
         glBegin( GL_LINE_LOOP );/// don't workglPointSize( 0.0 );
         //GLUquadricObj *quadric;
@@ -296,43 +300,14 @@ void cbRender() {
     }
 #endif 
     //------------------------------
+    glRotatef(90,0,1,0);
     loadVertexMatrix();
     //------------------------------
 
     // Set the projection from the XYZ to the texture image
-    glMatrixMode( GL_TEXTURE) ;
-    glLoadIdentity();
-    //        glScalef( 1/640.0f,1/480.0f,1 );
-    glScalef( 1./(window_width),1./(window_height*NUM_CAMS),1 );
-    loadRGBMatrix();
-
-    // TODO: Load a unique projection per camera to calibrate together
-
-    //------------------------------
-    loadVertexMatrix();
-    //------------------------------
-
     glMatrixMode( GL_MODELVIEW );
     glPointSize( 1 );
 
-#if 0
-    // ---------------
-    glEnableClientState( GL_VERTEX_ARRAY );
-    glVertexPointer( 3, GL_SHORT, 0, xyz );
-    glEnableClientState( GL_TEXTURE_COORD_ARRAY ); 
-    glTexCoordPointer( 3, GL_SHORT, 0, xyz );
-
-    // ---------------
-    glEnableClientState( GL_VERTEX_ARRAY );
-    if ( color ) 
-        glEnable( GL_TEXTURE_2D );
-    glBindTexture( GL_TEXTURE_2D, rgbTexGL );
-    glTexImage2D( GL_TEXTURE_2D, 0, 3, window_width, NUM_CAMS*window_height, 0, GL_RGB, GL_UNSIGNED_BYTE, rgb );
-
-    // ---------------
-    glPointSize( 2.0f );
-    glDrawElements( GL_POINTS, NUM_CAMS*window_width*window_height, GL_UNSIGNED_INT, indices );
-#endif
 
 #if 1
     //printf("color buffer\n");
@@ -347,12 +322,17 @@ void cbRender() {
 
     glEnableClientState(GL_COLOR_ARRAY);
 
+    glPushMatrix();
+    //rotation();
+    //glRotatef(90,0,1,0);
     glDrawArrays(GL_POINTS, 0, 2*window_width*window_height);
+    glPopMatrix();
+    //glDrawArrays(GL_POINTS, window_width*window_height, 2*window_width*window_height);
 
 #endif
     // ---------------
 
-    glPopMatrix();
+    //glPopMatrix();
     // ---------------------------------
 
 
@@ -439,7 +419,7 @@ void loadBuffers( int cameraIndx,
 
     int cntrx, cntry, cntrz;
 
-    if( REGISTERED && cameraIndx == 0 ) {
+    if( false && cameraIndx == 0 ) {
         // Translation
         float x = centroids.second[0]-centroids.first[0]; 
         float y = centroids.second[1]-centroids.first[1]; 
@@ -499,6 +479,17 @@ void loadVertexMatrix() {
         0,    -1/fy,  0, 0,
         0,       0,  0, a,
         -cx/fx, cy/fy, -1, b
+    };
+    glMultMatrixf( mat);
+}
+
+void rotation() {
+
+    GLfloat mat[16] = {
+        0, 0, 1, 0,
+        0, 1, 0, 0,
+        -1, 0, 0, 0,
+        0, 0, 0, 1
     };
     glMultMatrixf( mat);
 }
