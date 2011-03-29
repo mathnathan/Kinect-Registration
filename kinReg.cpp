@@ -16,6 +16,8 @@
 using namespace cv;
 
 // Shorten the name for easier typing
+enum Transform_Mode{ rotation, translation, full_transform, none, experimental };
+Transform_Mode transform_mode = none;
 typedef pair< Vec3f, Vec3f > match;
 typedef vector< match > matchList;
 matchList correspondences;
@@ -64,7 +66,7 @@ void cbMousePress( int button, int state, int x, int y);
 
 // Called insde the display function
 void kernel();
-void rotation();
+void transformation();
 void loadVertexMatrix();
 void loadRGBMatrix();
 void noKinectQuit();
@@ -80,7 +82,7 @@ void loadBuffers( int cameraIndx,
 Mat joinFrames( const Mat& img1, const Mat& img2 );
 matchList findFeatures( const Mat& img1, const Mat& img2 );
 match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 );
-Mat calcRotation( match centr, matchList corrs );
+void calcRotation( match centr, matchList corrs );
 float getDepth( int cam, int x, int y );
 void printMat( const Mat& A );
 
@@ -89,12 +91,9 @@ vector<Mat> rgbCV;
 vector<Mat> depthCV;
 
 // Rotation Matrix
-Mat rot( 3, 3, CV_32F );
-
-// To know when registered
-bool REGISTERED = false;
-
-
+Mat rot( 4, 4, CV_32F );
+Mat trans( 4, 4, CV_32F );
+Mat rottrans( 4, 4, CV_32F );
 
 int main( int argc, char** argv ) {
 
@@ -164,28 +163,28 @@ void cbKeyPressed( unsigned char key, int x, int y ) {
         glutDestroyWindow( window );
         exit( 0 );
     }
-    if( key == 'u' ) {
-        REGISTERED = false;
-    }
-    if( key == 't' ) {
-        //float r[] = {0,0,1,0,1,0,-1,0,0};
-        float r[] = {1,0,0,0,1,0,0,0,1};
-        rot = Mat( 3, 3, CV_32F, r ).clone();
-        REGISTERED = true;
-    }
-    if( key == 'f' ) {
+    else if( key == 'r' ) 
+        transform_mode = rotation;
+    else if( key == 't' ) 
+        transform_mode = translation;
+    else if( key == 'a' )
+        transform_mode = full_transform;
+    else if( key == 'e' )
+        transform_mode = experimental;
+    else if( key == 'n' )
+        transform_mode = none;
+    else if( key == 'f' ) {
         correspondences = findFeatures( rgbCV[0], rgbCV[1] );
         centroids = calcCentroids( correspondences, rgbCV[0], rgbCV[1] );
-        rot = calcRotation( centroids, correspondences );
-        REGISTERED = true;
+        calcRotation( centroids, correspondences );
+        transform_mode = full_transform;
     }
-    if ( key == 'w' )
+    else if ( key == 'z' )
         zoom *= 1.1f;
-    if ( key == 's' )
+    else if ( key == 'x' )
         zoom /= 1.1f;
-    if ( key == 'c' )
+    else if ( key == 'c' )
         color = !color;
-    if ( key == 't' ) {}
 }
 
 void cbMouseMoved( int x, int y) {
@@ -243,13 +242,12 @@ void cbRender() {
     glTranslatef( 0,0,1.5 );
     draw_axes();
 
-    if ( REGISTERED ) {
+    if ( false ) {
         //-------------------------------------------
         glMatrixMode( GL_MODELVIEW );
         glPushMatrix();
         glColor3f(0,1,0);
         loadVertexMatrix();
-        //rotation();
         glTranslatef( centroids.first[0],centroids.first[1],centroids.first[2] );
         glBegin( GL_LINE_LOOP );/// don't workglPointSize( 0.0 );
         GLUquadricObj *quadric;
@@ -271,7 +269,6 @@ void cbRender() {
         glPushMatrix();
         glColor3f(1,0,0);
         loadVertexMatrix();
-        //rotation();
         glTranslatef( centroids.second[0],centroids.second[1],centroids.second[2] );
         glBegin( GL_LINE_LOOP );/// don't workglPointSize( 0.0 );
         //GLUquadricObj *quadric;
@@ -290,52 +287,31 @@ void cbRender() {
 
         //---------------------------------------------
     }
-#if 0
-    //TODO: 
-    if( true ) {	
-        if( cam == 0 ) 
-            glTranslatef( -centroids.first[0]/640.0f, -centroids.first[1]/480.0f, -centroids.first[2] );
-        else
-            glTranslatef( -centroids.second[0]/640.0f, -centroids.second[1]/480.0f, -centroids.second[2] );
-    }
-#endif 
-    //------------------------------
-    glRotatef(90,0,1,0);
-    loadVertexMatrix();
-    //------------------------------
 
     // Set the projection from the XYZ to the texture image
-    glMatrixMode( GL_MODELVIEW );
+    //glMatrixMode( GL_MODELVIEW );
     glPointSize( 1 );
 
-
-#if 1
-    //printf("color buffer\n");
-    //glColor3f(1,0,0);
     glVertexPointer( 3, GL_SHORT, 0, xyz );
 
     glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
-
-    //printf("enable client state\n");
 
     glEnableClientState(GL_VERTEX_ARRAY);
 
     glEnableClientState(GL_COLOR_ARRAY);
 
+    glScalef( .003, .003, .003 );
+    glRotatef(180, 0, 1, 0);
+    glRotatef(180, 0, 0, 1);
     glPushMatrix();
-    //rotation();
     //glRotatef(90,0,1,0);
-    glDrawArrays(GL_POINTS, 0, 2*window_width*window_height);
+    transformation();
+    //loadVertexMatrix();
+    //glRotatef(90,0,1,0);
+    glDrawArrays(GL_POINTS, 0, window_width*window_height);
     glPopMatrix();
-    //glDrawArrays(GL_POINTS, window_width*window_height, 2*window_width*window_height);
-
-#endif
-    // ---------------
-
-    //glPopMatrix();
-    // ---------------------------------
-
-
+    //loadVertexMatrix();
+    glDrawArrays(GL_POINTS, window_width*window_height, window_width*window_height);
 
     glDisable( GL_TEXTURE_2D );
 
@@ -397,68 +373,20 @@ void loadBuffers( int cameraIndx,
         short xyz[window_height][window_width][3], 
         unsigned char rgb[window_height][window_width][3] ) {
 
-    // Load the new Mats
-#if 0
-    Mat d = freenect_sync_get_rgb_cv(cameraIndx);
-    short d1 = d.at<short>(0,0);
-    unsigned char d2 = d.at<unsigned char>(0,0);
-    char d3 = d.at<char>(0,0);
-    printf("\n-------------------SHORT-------------\n");
-    printf("\n SIZEOF( depth.at<short>(0,0) ) = %d\n", sizeof(d1));
-    printf("depth.at<short>(0,0) = %d\n", d1);
-    printf("\n--------------UNSIGNED CHAR-------------\n");
-    printf("\n SIZEOF( depth.at<unsigned char>(0,0) ) = %d\n", sizeof(d2));
-    printf("depth.at<unsigned char>(0,0) = %d\n", d2);
-    printf("\n------------------CHAR-------------\n");
-    printf("\n SIZEOF( depth.at<char>(0,0) ) = %d\n", sizeof(d3));
-    printf("depth.at<char>(0,0) = %d\n", d3);
-#endif
-
     rgbCV.push_back( freenect_sync_get_rgb_cv(cameraIndx) );
     depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
 
-    int cntrx, cntry, cntrz;
+    for ( int i = 0; i < window_height; i++ ) {
+        for ( int j = 0; j < window_width; j++ ) {
+            xyz[i][j][0] = j;
+            xyz[i][j][1] = i;
+            xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
+            indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
 
-    if( false && cameraIndx == 0 ) {
-        // Translation
-        float x = centroids.second[0]-centroids.first[0]; 
-        float y = centroids.second[1]-centroids.first[1]; 
-        float z = centroids.second[2]-centroids.first[2]; 
-
-        for ( int i = 0; i < window_height; i++ ) {
-            for ( int j = 0; j < window_width; j++ ) {
-
-                float data[] = {j, i, (float)depthCV[cameraIndx].at<short>( i, j )};
-                Mat pt( 3, 1, CV_32F, data );
-
-                pt = rot*pt;
-
-                xyz[i][j][0] = (short)(pt.at<float>(0,0)+x);
-                xyz[i][j][1] = (short)(pt.at<float>(1,0)+y);               
-                xyz[i][j][2] = (short)(pt.at<float>(2,0)+z); 
-                indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
-
-                Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
-                rgb[i][j][0] = color[0];
-                rgb[i][j][1] = color[1];
-                rgb[i][j][2] = color[2];
-            }
-        }
-    }
-    else {
-
-        for ( int i = 0; i < window_height; i++ ) {
-            for ( int j = 0; j < window_width; j++ ) {
-                xyz[i][j][0] = j;
-                xyz[i][j][1] = i;
-                xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
-                indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
-
-                Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
-                rgb[i][j][0] = color[0];
-                rgb[i][j][1] = color[1];
-                rgb[i][j][2] = color[2];
-            }
+            Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
+            rgb[i][j][0] = color[0];
+            rgb[i][j][1] = color[1];
+            rgb[i][j][2] = color[2];
         }
     }
 }
@@ -483,15 +411,42 @@ void loadVertexMatrix() {
     glMultMatrixf( mat);
 }
 
-void rotation() {
-
-    GLfloat mat[16] = {
-        0, 0, 1, 0,
-        0, 1, 0, 0,
-        -1, 0, 0, 0,
-        0, 0, 0, 1
-    };
-    glMultMatrixf( mat);
+void transformation() {
+    if( transform_mode == none ){
+        GLfloat mat[16] = {
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        };
+        glMultMatrixf( mat );
+    }
+    if( transform_mode == experimental ){
+        GLfloat mat[16] = {
+/*
+             -0.999975, 0.005825, 0.004040, 0,
+        0.005826, 0.999983, 0.000187, 0,
+        0.004039, -0.000211, 0.999992, 0,
+*/
+ 0.997846, -0.065586, -0.000841,0,
+ 0.065586, 0.997847, -0.000093, 0,
+ 0.000845, 0.000038, 1.000000, 0,
+           0, 0, 0, 1
+        };
+        glMultMatrixf( mat );
+    }
+    else if( transform_mode == full_transform ) {
+        //transpose( rottrans, rottrans );
+        glMultTransposeMatrixf( (GLfloat*)rottrans.data );
+    }
+    else if( transform_mode == rotation ) {
+        //transpose( rot, rot );
+        glMultTransposeMatrixf( (GLfloat*)rot.data );
+    }
+    else if( transform_mode == translation ) {
+        //transpose( trans, trans );
+        glMultTransposeMatrixf( (GLfloat*)trans.data ); 
+    }
 }
 
 // This matrix comes from a combination of nicolas burrus's calibration post
@@ -745,8 +700,7 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
     return centroids;
 } 
 
-Mat calcRotation( match centr, matchList corrs ) {
-#if 1
+void calcRotation( match centr, matchList corrs ) {
 
     Mat P = Mat::ones( 3, corrs.size(), CV_32F );
     Mat Q = Mat::ones( 3, corrs.size(), CV_32F );
@@ -805,21 +759,38 @@ Mat calcRotation( match centr, matchList corrs ) {
 
     printMat( svd.vt );	
 
-    Mat R = svd.u*svd.vt;
+    Mat r = svd.u*svd.vt;
 
-    printf(" R.rows = %d\n", R.rows );
-    printf(" R.cols = %d\n", R.cols );
+    printf(" r.rows = %d\n", r.rows );
+    printf(" r.cols = %d\n", r.cols );
 
-    printMat( R );	
+    printMat( r );	
 
+    // translations ( first point cloud to second )
+    float x = centroids.second[0]-centroids.first[0]; 
+    float y = centroids.second[1]-centroids.first[1]; 
+    float z = centroids.second[2]-centroids.first[2]; 
 
-    glutPushWindow();
-    cvDestroyWindow( "Camera 0 | Camera 1" );
-    cvDestroyWindow( "Matching Correspondences" );
-    cvDestroyWindow( "SIFT matches" );
-    cvDestroyWindow( "Centroids" );
-    return R;
-#endif 
+    float rtdata[16] = { r.at<float>(0,0), r.at<float>(0,1), r.at<float>(0,2), x,
+                       r.at<float>(1,0), r.at<float>(1,1), r.at<float>(1,2), y,
+                       r.at<float>(2,0), r.at<float>(2,1), r.at<float>(2,2), z,
+                       0, 0, 0, 1 };
+    Mat RT( 4, 4, CV_32F, rtdata );
+    rottrans = RT;
+    
+    float rdata[16] = { r.at<float>(0,0), r.at<float>(0,1), r.at<float>(0,2), 0,
+                       r.at<float>(1,0), r.at<float>(1,1), r.at<float>(1,2), 0,
+                       r.at<float>(2,0), r.at<float>(2,1), r.at<float>(2,2), 0,
+                       0, 0, 0, 1 };
+    Mat R( 4, 4, CV_32F, rdata );
+    rot = R;
+
+    float tdata[16] = { 1, 0, 0, x, 
+                        0, 1, 0, y,
+                        0, 0, 1, z,
+                        0, 0, 0, 1 };
+    Mat T( 4, 4, CV_32F, tdata );
+    trans = T;
 }
 
 void printMat( const Mat& A ) {
@@ -917,9 +888,6 @@ void draw_line( Vec3b v1, Vec3b v2) {
 
 }
 
-
-
-
 void draw_axes() {
 
     //X Axis
@@ -943,4 +911,12 @@ void draw_axes() {
     Vec3b b2(0,0,1);
     draw_line(b1, b2);
 
+
+
 }
+
+
+
+
+
+
