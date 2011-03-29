@@ -239,7 +239,7 @@ void cbRender() {
     glRotatef( rotangles[0], 1,0,0 );
     glRotatef( rotangles[1], 0,1,0 );
     glTranslatef( 0,0,1.5 );
-    draw_axis();
+    draw_axes();
 
     if ( REGISTERED ) {
         //-------------------------------------------
@@ -934,22 +934,22 @@ void draw_axes() {
     //X Axis
 
     glColor3f(1,0,0);    //red
-    v1 = Vec3b(0,0,0);
-    v2 = Vec(1,0,0);
-    draw_line(v1, v2);
+    Vec3b r1(0,0,0);
+    Vec3b r2(1,0,0);
+    draw_line(r1, r2);
 
     //Y Axis
 
     glColor3f(0,1,0);    //green
-    v1 = Vec3b(0,0,0);
-    v2 = Vec3b(0,1,0);
-    draw_line(v1, v2);
+    Vec3b g1(0,0,0);
+    Vec3b g2(0,1,0);
+    draw_line(g1, g2);
 
     //Z Axis
 
     glColor3f(0,0,1);    //blue
-    v1 = Vec3b(0,0,0);
-    v2 = Vec3b(0,0,1);
-    draw_line(v1, v2);
+    Vec3b b1(0,0,0);
+    Vec3b b2(0,0,1);
+    draw_line(b1, b2);
 
 }
