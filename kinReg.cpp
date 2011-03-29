@@ -21,6 +21,21 @@ typedef vector< match > matchList;
 matchList correspondences;
 match centroids;
 
+//lighting stuff
+const GLfloat light_ambient[]  = { 0.4f, 0.4f, 0.04, 1.0f };
+const GLfloat light_diffuse[]  = { 1.0f, 1.0f, 1.0f, 1.0f };
+const GLfloat light_specular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+const GLfloat light_position[] = { 2.0f, 5.0f, 5.0f, 0.0f };
+
+const GLfloat mat_ambient[]    = { 0.2f, 0.2f, 1.0f, 1.0f };
+const GLfloat mat_diffuse[]    = { 0.2f, 0.8f, 1.0f, 1.0f };
+const GLfloat mat_specular[]   = { 1.0f, 1.0f, 1.0f, 1.0f };
+const GLfloat high_shininess[] = { 100.0f };
+
+const GLfloat mat_ambient_back[]    = { 0.5f, 0.2f, 0.2f, 1.0f };
+const GLfloat mat_diffuse_back[]    = { 1.0f, 0.2f, 0.2f, 1.0f };
+
+
 // Variables for Calculations and Loops
 const int NUM_CAMS = 2;
 GLuint rgbTexGL;
@@ -37,6 +52,7 @@ int window_xpos = 1000, window_ypos = 100;
 
 // OpenGl Initialization Routines
 void setupGL( int argc, char** argv );
+void define_lights_and_materials();
 
 // Callback Functions
 void cbRender();
@@ -51,7 +67,11 @@ void kernel();
 void loadVertexMatrix();
 void loadRGBMatrix();
 void noKinectQuit();
-void loadBuffers( int cameraIndx, unsigned int indices[window_height][window_width], short xyz[window_height][window_width][3]);
+
+void loadBuffers( int cameraIndx, 
+				unsigned int indices[window_height][window_width], 
+				short xyz[window_height][window_width][3], 
+                unsigned char rgb[window_height][window_width][3] );
 
 // Computer Vision Functions
 Mat joinFrames( const Mat& img1, const Mat& img2 );
@@ -82,6 +102,7 @@ int main( int argc, char** argv ) {
 	}
 
     setupGL( argc, argv );
+    void define_lights_and_materials();
     glutMainLoop();
 
     return 0;
@@ -175,8 +196,9 @@ void cbMousePress( int button, int state, int x, int y) {
 
 void cbRender() {
 
-    unsigned int indices[window_height][window_width];
-    short xyz[window_height][window_width][3];
+    unsigned int indices[NUM_CAMS*window_height][window_width];
+    short xyz[NUM_CAMS*window_height][window_width][3];
+    unsigned char rgb[NUM_CAMS*window_height][window_width][3];
 
     // Flush the OpenCV Mat's from last frame
     rgbCV.clear();
@@ -191,20 +213,73 @@ void cbRender() {
 
     for( int cam = 0; cam < NUM_CAMS; cam++ ) {
 
-        loadBuffers( cam, indices, xyz ); 
+        loadBuffers( cam, &indices[cam*window_height], &xyz[cam*window_height], &rgb[cam*window_height] ); 
+
+    }
         glPushMatrix();
         glScalef( zoom,zoom,1 );
         glTranslatef( 0,0,-3.5 );
         glRotatef( rotangles[0], 1,0,0 );
-		glRotatef( (cam*angle_between_cams)+rotangles[1], 0,1,0 );
+	//	glRotatef( (cam*angle_between_cams)+rotangles[1], 0,1,0 );
+		glRotatef( rotangles[1], 0,1,0 );
+
         glTranslatef( 0,0,1.5 );
 
+//-------------------------------------------
+        glPushMatrix();
+        //glLoadIdentity();
+        //glTranslatef( centroids.first[0],centroids.first[1],centroids.first[2]);
+        loadVertexMatrix();
+        glTranslatef( 300,300,1000);
+        glColor3f(0,1,0);
+        glBegin( GL_LINE_LOOP );/// don't workglPointSize( 0.0 );
+        GLUquadricObj *quadric;
+        quadric = gluNewQuadric();
+
+        gluQuadricDrawStyle(quadric, GLU_FILL );
+        gluSphere( quadric , 10 , 16 , 18 );
+        
+
+        gluDeleteQuadric(quadric); 
+        glEndList();
+
+        glEnd();
+
+        glPopMatrix();
+
+// ---------------------------------
+
+        glPushMatrix();
+        //glLoadIdentity();
+        glColor3f(1,0,0);
+        //glTranslatef( 0,.5,-3.5);
+        loadVertexMatrix();
+        glBegin( GL_LINE_LOOP );/// don't workglPointSize( 0.0 );
+        //GLUquadricObj *quadric;
+        quadric = gluNewQuadric();
+
+        gluQuadricDrawStyle(quadric, GLU_FILL );
+        gluSphere( quadric , 100 , 16 , 18 );
+
+
+        gluDeleteQuadric(quadric); 
+        glEndList();
+
+        glEnd();
+
+        glPopMatrix();
+
+//---------------------------------------------
+
+#if 0
+        //TODO: 
 		if( true ) {	
 			if( cam == 0 ) 
 				glTranslatef( -centroids.first[0]/640.0f, -centroids.first[1]/480.0f, -centroids.first[2] );
 			else
 				glTranslatef( -centroids.second[0]/640.0f, -centroids.second[1]/480.0f, -centroids.second[2] );
 		}
+#endif 
 //------------------------------
         loadVertexMatrix();
 //------------------------------
@@ -212,7 +287,8 @@ void cbRender() {
         // Set the projection from the XYZ to the texture image
         glMatrixMode( GL_TEXTURE) ;
         glLoadIdentity();
-        glScalef( 1/640.0f,1/480.0f,1 );
+//        glScalef( 1/640.0f,1/480.0f,1 );
+        glScalef( 1./(window_width),1./(window_height*NUM_CAMS),1 );
         loadRGBMatrix();
 
         // TODO: Load a unique projection per camera to calibrate together
@@ -222,9 +298,9 @@ void cbRender() {
 //------------------------------
 
         glMatrixMode( GL_MODELVIEW );
-
         glPointSize( 1 );
 
+#if 0
         // ---------------
         glEnableClientState( GL_VERTEX_ARRAY );
         glVertexPointer( 3, GL_SHORT, 0, xyz );
@@ -236,15 +312,35 @@ void cbRender() {
         if ( color ) 
             glEnable( GL_TEXTURE_2D );
         glBindTexture( GL_TEXTURE_2D, rgbTexGL );
-        glTexImage2D( GL_TEXTURE_2D, 0, 3, window_width, window_height, 0, GL_RGB, GL_UNSIGNED_BYTE, rgbCV[cam].data );
+        glTexImage2D( GL_TEXTURE_2D, 0, 3, window_width, NUM_CAMS*window_height, 0, GL_RGB, GL_UNSIGNED_BYTE, rgb );
 
         // ---------------
         glPointSize( 2.0f );
-        glDrawElements( GL_POINTS, window_width*window_height, GL_UNSIGNED_INT, indices );
+        glDrawElements( GL_POINTS, NUM_CAMS*window_width*window_height, GL_UNSIGNED_INT, indices );
+#endif
+
+#if 1
+//printf("color buffer\n");
+    //glColor3f(1,0,0);
+    glVertexPointer( 3, GL_SHORT, 0, xyz );
+    
+    glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
+
+    //printf("enable client state\n");
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    glDrawArrays(GL_POINTS, 0, 2*window_width*window_height);
+
+#endif
         // ---------------
 
         glPopMatrix();
-    }
+// ---------------------------------
+
+
 
     glDisable( GL_TEXTURE_2D );
 
@@ -253,8 +349,6 @@ void cbRender() {
 }
 
 void kernel() {
-
-	bool CVWindows_Open;
 
     if( correspondences.empty() ) {
 
@@ -277,14 +371,7 @@ void kernel() {
 		// OpenGL's cbKeyPressed callback function
 		if( key != -1 ) 
 			cbKeyPressed( key, 0, 0 );
-		CVWindows_Open = 1;
     }
-    else {
-		if( CVWindows_Open ) {
-			cvDestroyWindow("Camera 0 | Camera 1");
-		}
-	}
-
 }
 
 // This ensures that OpenGL and OpenCV play nicely together
@@ -312,20 +399,57 @@ void noKinectQuit() {
 
 void loadBuffers( int cameraIndx, 
 				unsigned int indices[window_height][window_width], 
-				short xyz[window_height][window_width][3] ) {
+				short xyz[window_height][window_width][3], 
+                unsigned char rgb[window_height][window_width][3] ) {
 
     // Load the new Mats
     rgbCV.push_back( freenect_sync_get_rgb_cv(cameraIndx) );
     depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
 
-	for ( int i = 0; i < window_height; i++) {
-		for ( int j = 0; j < window_width; j++) {
-			xyz[i][j][0] = j;
-			xyz[i][j][1] = i;
-			xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
-			indices[i][j] = i*window_width+j;
-		}
-	}
+    int cntrx, cntry, cntrz;
+
+    if( REGISTERED && cameraIndx == 0 ) {
+        // Translation
+        float x = centroids.second[0]-centroids.first[0]; 
+        float y = centroids.second[1]-centroids.first[1]; 
+        float z = centroids.second[2]-centroids.first[2]; 
+            
+        for ( int i = 0; i < window_height; i++ ) {
+            for ( int j = 0; j < window_width; j++ ) {
+
+                float data[] = {j, i, depthCV[cameraIndx].at<short>( i, j )};
+                Mat pt( 3, 1, CV_32F, data );
+
+                pt = rot*pt;
+
+                xyz[i][j][0] = (short)(pt.at<float>(0,0));
+                xyz[i][j][1] = (short)(pt.at<float>(1,0));               
+                xyz[i][j][2] = (short)(pt.at<float>(2,0)); 
+                indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
+                
+                Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
+                rgb[i][j][0] = color[0];
+                rgb[i][j][1] = color[1];
+                rgb[i][j][2] = color[2];
+            }
+        }
+    }
+    else {
+
+        for ( int i = 0; i < window_height; i++ ) {
+            for ( int j = 0; j < window_width; j++ ) {
+                xyz[i][j][0] = j;
+                xyz[i][j][1] = i;
+                xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
+                indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
+                
+                Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
+                rgb[i][j][0] = color[0];
+                rgb[i][j][1] = color[1];
+                rgb[i][j][2] = color[2];
+            }
+        }
+    }
 }
 
 // Do the projection from u,v,depth to X,Y,Z directly in an opengl matrix
@@ -420,7 +544,7 @@ matchList findFeatures( const Mat& img1, const Mat& img2 ) {
 
     // Store the cumulative slopes of correspondences here
     double totSlope;
-    // This is where we'll store the correspondences for future calculations
+    // This is where we'll store the correspondences for future 
     matchList corrs;
 
     int i;
@@ -543,16 +667,18 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
         centr1[0] += corrs[i].first[0]; 
         centr1[1] += corrs[i].first[1]; 
 		//z1 = (float)depthCV[0].at<short>( (int)centr1[0], (int)centr1[1] );
-		z1 = getDepth( 0, (int)centr1[0], (int)centr1[1] );
+		z1 = getDepth( 0, (int)corrs[i].first[0], (int)corrs[i].first[1] );
         centr1[2] += z1; 
 
         // Second image
         centr2[0] += corrs[i].second[0];
         centr2[1] += corrs[i].second[1];
 		//z1 = (float)depthCV[1].at<short>( (int)centr2[0], (int)centr2[1] );
-		z1 = getDepth( 1, (int)centr2[0], (int)centr2[1] );
+		z2 = getDepth( 1, (int)corrs[i].second[0], (int)corrs[i].second[1] );
         centr2[2] += z2; 
 
+        printf( "First %d: (%f,%f,%f)\n", i, corrs[i].first[0], corrs[i].first[1], z1 );
+        printf( "Second %d: (%f,%f,%f)\n", i, corrs[i].second[0], corrs[i].second[1], z2 );
     }
 
 	// first
@@ -565,13 +691,14 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
     centr2[2] /= corrs.size();
 
     match centroids( centr1, centr2 );
-
+#if 0
     printf( "\nCorrespondence points in Image 1\n" );
     for( int i = 0; i < (int)corrs.size(); i++ ) 
-        printf( "%d: (%f,%f)\n", i, corrs[i].first[0], corrs[i].first[1] );
+        printf( "%d: (%f,%f,%f)\n", i, corrs[i].first[0], corrs[i].first[1], z1 );
     printf( "\nCorrespondence points in Image 2\n" );
     for( int i = 0; i < (int)corrs.size(); i++ ) 
-        printf( "%d: (%f,%f)\n", i, corrs[i].second[0], corrs[i].second[1] );
+        printf( "%d: (%f,%f,%f)\n", i, corrs[i].second[0], corrs[i].second[1], z2 );
+#endif
 
 // Put both images side by side in one image
     Mat rslt = joinFrames( img1, img2 );
@@ -656,7 +783,6 @@ Mat calcRotation( match centr, matchList corrs ) {
 	
 	printMat( svd.vt );	
 
-
 	Mat R = svd.u*svd.vt;
 
 	printf(" R.rows = %d\n", R.rows );
@@ -664,6 +790,12 @@ Mat calcRotation( match centr, matchList corrs ) {
 
 	printMat( R );	
 
+
+    glutPushWindow();
+    cvDestroyWindow( "Camera 0 | Camera 1" );
+    cvDestroyWindow( "Matching Correspondences" );
+    cvDestroyWindow( "SIFT matches" );
+    cvDestroyWindow( "Centroids" );
 	return R;
 #endif 
 }
@@ -688,6 +820,7 @@ void printMat( const Mat& A ) {
 float getDepth( int cam, int x, int y ) {
 
 	float d = (float)depthCV[cam].at<short>(x,y);
+    printf("short, float = %d, %f\n",depthCV[cam].at<short>(x,y), d);
 	
 	if( d == 2047 ) 
 		d = (float)depthCV[cam].at<short>(x,y+1);
@@ -715,3 +848,41 @@ float getDepth( int cam, int x, int y ) {
 
 	return d;
 }
+
+void define_lights_and_materials()
+{
+
+    // Ambient: color in the absence of light
+    glLightfv(GL_LIGHT0, GL_AMBIENT,  light_ambient);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE,  light_diffuse);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
+    glLightfv(GL_LIGHT0, GL_POSITION, light_position);
+
+    glMaterialfv(GL_FRONT, GL_AMBIENT,   mat_ambient);
+    glMaterialfv(GL_FRONT, GL_DIFFUSE,   mat_diffuse);
+    glMaterialfv(GL_FRONT, GL_SPECULAR,  mat_specular);
+    glMaterialfv(GL_FRONT, GL_SHININESS, high_shininess);
+
+    glMaterialfv(GL_BACK, GL_AMBIENT,   mat_ambient_back);
+    glMaterialfv(GL_BACK, GL_DIFFUSE,   mat_diffuse_back);
+    glMaterialfv(GL_BACK, GL_SPECULAR,  mat_specular);
+    glMaterialfv(GL_BACK, GL_SHININESS, high_shininess);
+
+    // lighting only has effect if lighting is on
+    // color of vertices have no effect without material 
+    //   if phone is one (GL_SMOOTH)
+
+    glEnable(GL_LIGHT0);
+    //glEnable(GL_LIGHT_MODEL_TWO_SIDE);
+
+    // I don't really undersand GL_COLOR_MATERIAL
+    glEnable(GL_COLOR_MATERIAL);
+    //glEnable(GL_LIGHTING);
+    glEnable(GL_NORMALIZE); // makes sure normal remain unit length
+
+        // Blending is only active when blending mode is ON
+    // Page 129 in GLUT course
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
