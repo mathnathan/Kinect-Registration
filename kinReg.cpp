@@ -102,6 +102,9 @@ Mat rot( 4, 4, CV_32F );
 Mat trans( 4, 4, CV_32F );
 Mat rottrans( 4, 4, CV_32F );
 
+//CONSTS
+const unsigned short MASK = 0x07FF;
+
 int main( int argc, char** argv ) {
 
     // load the first frames (OpenCV gets upset otherwise)
@@ -146,7 +149,7 @@ void setupGL( int argc, char** argv ) {
     glutTimerFunc( 10, cbTimer, 10 );
 
     glScalef( .5, .5, .5 );
-    glPushMatrix();
+    //glPushMatrix();
     glClear( GL_COLOR_BUFFER_BIT );
 
 }
@@ -178,8 +181,8 @@ void cbKeyPressed( unsigned char key, int x, int y ) {
         zoom *= 1.1f;
     else if ( key == 'x' )
         zoom /= 1.1f;
-	else if ( key == 's' )
-		DRAW_SPHERES == true;
+    else if ( key == 's' )
+        DRAW_SPHERES == true;
 
 }
 
@@ -209,7 +212,7 @@ void cbMousePress( int button, int state, int x, int y) {
 }
 
 void cbRender() {
-
+    float* xyz_float = new float[NUM_CAMS*window_height*window_width*3];
     short xyz[NUM_CAMS*window_height][window_width][3];
     unsigned char rgb[NUM_CAMS*window_height][window_width][3];
     unsigned int indices[NUM_CAMS*window_height][window_width];
@@ -228,22 +231,25 @@ void cbRender() {
     for( int cam = 0; cam < NUM_CAMS; cam++ ) {
 
         loadBuffers( cam, &indices[cam*window_height], 
-				&xyz[cam*window_height], &rgb[cam*window_height] ); 
+                &xyz[cam*window_height], &rgb[cam*window_height] ); 
 
     }
 
-    //glPushMatrix();
+    glMatrixMode( GL_MODELVIEW );
+    glPushMatrix();
     glScalef( zoom,zoom,1 );
     glTranslatef( 0,0,-3.5 );
     glRotatef( rotangles[0], 1,0,0 );
     glRotatef( rotangles[1], 0,1,0 );
     glTranslatef( 0,0,1.5 );
+    glPushMatrix(); 
     draw_axes();
+    glPopMatrix(); 
 
     if ( DRAW_SPHERES ) {
         //-------------------------------------------
-		// Green sphere at first centroid
-        glMatrixMode( GL_MODELVIEW );
+        // Green sphere at first centroid
+    //    glMatrixMode( GL_MODELVIEW );
         glPushMatrix();
         glColor3f(0,1,0);
         loadVertexMatrix();
@@ -263,7 +269,7 @@ void cbRender() {
         glPopMatrix();
 
         // ---------------------------------
-		// Red sphere at second centroid
+        // Red sphere at second centroid
         glPushMatrix();
         glColor3f(1,0,0);
         loadVertexMatrix();
@@ -283,55 +289,77 @@ void cbRender() {
 
     }
 
-	// Now draw the depth and color buffers
-	
+    // Now draw the depth and color buffers
+
     glPointSize( 1 );
+#if 0
     glVertexPointer( 3, GL_SHORT, 0, xyz );
+
+#else 
+    for (int i = 0; i < NUM_CAMS*window_height; i++) {
+        for (int j=0; j < window_width; j++) {
+            // (i*M + j)*P + k  (N*M*P matrix)
+            int indx = (i*window_width + j)*3; 
+            xyz_float[indx + 0] = xyz[i][j][0] / (1.*window_width); 
+            xyz_float[indx + 1] = xyz[i][j][1] / (1.*window_height); 
+            xyz_float[indx + 2] = xyz[i][j][2] / (2048.); 
+        }
+    }
+
+    glVertexPointer( 3, GL_FLOAT, 0, xyz_float );
+#endif 
     glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
 
-	// Still experimenting with a few things here
-		glScalef( .003, .003, .003 );
-		glRotatef(180, 0, 1, 0);
-		glRotatef(180, 0, 0, 1);
-		glPushMatrix();
-		//glRotatef(90,0,1,0);
-		transformation();
-		//loadVertexMatrix();
-		//glRotatef(90,0,1,0);
-		glDrawArrays(GL_POINTS, 0, window_width*window_height);
-		glPopMatrix();
-		//loadVertexMatrix();
-		glDrawArrays(GL_POINTS, window_width*window_height, window_width*window_height);
+    // Still experimenting with a few things here
+
+    glPushMatrix();
+    //glScalef( 1./640., 1./480., 1./2048. );
+    //loadVertexMatrix();
+    glPushMatrix();
+    //glRotatef(180, 0, 1, 0);
+    //glRotatef(180, 0, 0, 1);
+    //glRotatef(90,0,1,0);
+    transformation();
+    //loadVertexMatrix();
+    //glRotatef(90,0,1,0);
+    glDrawArrays(GL_POINTS, 0, window_width*window_height);
+    glPopMatrix();
+    //loadVertexMatrix();
+    glDrawArrays(GL_POINTS, window_width*window_height, window_width*window_height);
+    glPopMatrix();
 
     glDisable( GL_TEXTURE_2D );
 
     displayCVcams();
+
+    delete[] xyz_float;
+
     glutSwapBuffers();
 }
 
 void displayCVcams() {
 
-	Mat tmp = rgbCV[0].clone();
-	for( int cam = 0; cam < NUM_CAMS; cam++ ) {
-		cvtColor( rgbCV[cam], tmp, CV_RGB2BGR );
-		rgbCV[cam] = tmp.clone();
-	}
+    Mat tmp = rgbCV[0].clone();
+    for( int cam = 0; cam < NUM_CAMS; cam++ ) {
+        cvtColor( rgbCV[cam], tmp, CV_RGB2BGR );
+        rgbCV[cam] = tmp.clone();
+    }
 
-	Mat rgb = joinFrames( rgbCV[0], rgbCV[1] );
-	imshow( "Camera 0 | Camera 1", rgb );
+    Mat rgb = joinFrames( rgbCV[0], rgbCV[1] );
+    imshow( "Camera 0 | Camera 1", rgb );
 
-	// Time here needs to be the same as cbTimer
-	// returns -1 if no key pressed
-	char key = waitKey( 10 );
+    // Time here needs to be the same as cbTimer
+    // returns -1 if no key pressed
+    char key = waitKey( 10 );
 
-	// If someone presses a button while a cv window 
-	// is in the foreground we want the behavior to
-	// be the same as for the OpenGL window, so call 
-	// OpenGL's cbKeyPressed callback function
-	if( key != -1 ) 
-		cbKeyPressed( key, 0, 0 );
+    // If someone presses a button while a cv window 
+    // is in the foreground we want the behavior to
+    // be the same as for the OpenGL window, so call 
+    // OpenGL's cbKeyPressed callback function
+    if( key != -1 ) 
+        cbKeyPressed( key, 0, 0 );
 
 }
 
@@ -364,17 +392,27 @@ void loadBuffers( int cameraIndx,
         unsigned char rgb[window_height][window_width][3] ) {
 
     rgbCV.push_back( freenect_sync_get_rgb_cv(cameraIndx) );
-   	depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
-	if( rgbCV[cameraIndx].empty() || depthCV[cameraIndx].empty() ) 
-		noKinectQuit();
+    depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
+
+
+    if( rgbCV[cameraIndx].empty() || depthCV[cameraIndx].empty() ) 
+        noKinectQuit();
 
     for ( int i = 0; i < window_height; i++ ) {
         for ( int j = 0; j < window_width; j++ ) {
             xyz[i][j][0] = j;
             xyz[i][j][1] = i;
-            xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
+            xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j ) & MASK;
             indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
-
+#if 0
+            if( (depthCV[cameraIndx].at<short>( i, j ) & MASK) !=
+                    depthCV[cameraIndx].at<short>( i, j ) ) {
+                printf(" depth with mask = 0x%0x\n", depthCV[cameraIndx].at<short>( i, j ) & MASK);
+                printf(" depth without mask = 0x%0x\n", depthCV[cameraIndx].at<short>( i, j ) );
+                printf(" depth with mask = %d\n", depthCV[cameraIndx].at<short>( i, j ) & MASK);
+                printf(" depth without mask = %d\n", depthCV[cameraIndx].at<short>( i, j ) );
+            }
+#endif
             Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
             rgb[i][j][0] = color[0];
             rgb[i][j][1] = color[1];
@@ -386,18 +424,18 @@ void loadBuffers( int cameraIndx,
 // not used here for testing
 void loadColor( int cameraIndx, unsigned char rgb[window_height][window_width][3] ) {
 
-	rgbCV.push_back( freenect_sync_get_rgb_cv(cameraIndx) );
-	if( rgbCV[cameraIndx].empty() )
-		noKinectQuit();
+    rgbCV.push_back( freenect_sync_get_rgb_cv(cameraIndx) );
+    if( rgbCV[cameraIndx].empty() )
+        noKinectQuit();
 
-	for ( int i = 0; i < window_height; i++ ) {
-		for ( int j = 0; j < window_width; j++ ) {
-			Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
-			rgb[i][j][0] = color[0];
-			rgb[i][j][1] = color[1];
-			rgb[i][j][2] = color[2];
-		}
-	}
+    for ( int i = 0; i < window_height; i++ ) {
+        for ( int j = 0; j < window_width; j++ ) {
+            Vec3b color = rgbCV[cameraIndx].at<Vec3b>(i,j); 
+            rgb[i][j][0] = color[0];
+            rgb[i][j][1] = color[1];
+            rgb[i][j][2] = color[2];
+        }
+    }
 
 }
 
@@ -405,18 +443,18 @@ void loadColor( int cameraIndx, unsigned char rgb[window_height][window_width][3
 void loadDepth( int cameraIndx, unsigned int indices[window_height][window_width], 
         short xyz[window_height][window_width][3] ) {
 
-	depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
-	if( depthCV[cameraIndx].empty() ) 
-		noKinectQuit();
+    depthCV.push_back( freenect_sync_get_depth_cv(cameraIndx) );
+    if( depthCV[cameraIndx].empty() ) 
+        noKinectQuit();
 
-	for ( int i = 0; i < window_height; i++ ) {
-		for ( int j = 0; j < window_width; j++ ) {
-			xyz[i][j][0] = j;
-			xyz[i][j][1] = i;
-			xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j );
-			indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
-		}
-	}
+    for ( int i = 0; i < window_height; i++ ) {
+        for ( int j = 0; j < window_width; j++ ) {
+            xyz[i][j][0] = j;
+            xyz[i][j][1] = i;
+            xyz[i][j][2] = depthCV[cameraIndx].at<short>( i, j ) & MASK;
+            indices[i][j] = (cameraIndx * window_height + i)*window_width + j; 
+        }
+    }
 
 }
 
@@ -452,24 +490,21 @@ void transformation() {
     }
     if( transform_mode == experimental ){
         GLfloat mat[16] = {
-			0.997846, -0.065586, -0.000841,0,
-			0.065586, 0.997847, -0.000093, 0,
-			0.000845, 0.000038, 1.000000, 0,
-			0, 0, 0, 1
+            0.997846, -0.065586, -0.000841,0,
+            0.065586, 0.997847, -0.000093, 0,
+            0.000845, 0.000038, 1.000000, 0,
+            0, 0, 0, 1
         };
         glMultMatrixf( mat );
     }
     else if( transform_mode == full_transform ) {
-        //transpose( rottrans, rottrans );
         glMultTransposeMatrixf( (GLfloat*)rottrans.data );
     }
     else if( transform_mode == rotation ) {
-        //transpose( rot, rot );
-        glMultTransposeMatrixf( (GLfloat*)rot.data );
+        glMultMatrixf( (GLfloat*)rot.data );
     }
     else if( transform_mode == translation ) {
-        //transpose( trans, trans );
-        glMultTransposeMatrixf( (GLfloat*)trans.data ); 
+        glMultMatrixf( (GLfloat*)trans.data ); 
     }
 }
 
@@ -572,8 +607,8 @@ matchList findFeatures( const Mat& img1, const Mat& img2 ) {
         char c = waitKey( 0);
 
         if( c == 'y' || c == 'Y' ) {
-			// Store the correspondences in a vector of pairs, where the
-			// members of each pair are Vec3f
+            // Store the correspondences in a vector of pairs, where the
+            // members of each pair are Vec3f
             corrs.push_back( match( Vec3f(pt1.x,pt1.y,1), Vec3f(pt2.x,pt2.y,1) ) );
 
             // Calculate the slope of the line between these, to filter out bad future matches
@@ -662,14 +697,29 @@ matchList findFeatures( const Mat& img1, const Mat& img2 ) {
 
     // Show all of the matches to compare to those the user decided to be accurate correspondences
     imshow("SIFT matches", img_matches);
-    centroids = calcCentroids( correspondences, rgbCV[0], rgbCV[1] );
-    imshow("Centroids", rslt);
-	waitKey(0);
 
-	destroyWindow( "Matching Correspondences" );
-	destroyWindow( "SIFT matches" );
-	destroyWindow( "Centroids" );
-	waitKey(10);
+    // Put both images side by side in one image
+    Mat centrs = joinFrames( img1, img2 );
+    centroids = calcCentroids( corrs, rgbCV[0], rgbCV[1] );
+    // Draw green circles around the correspondences in each image
+    for( int i = 0; i < (int)corrs.size(); i++ ) {
+        circle( centrs, Point2f( corrs[i].first[0], corrs[i].first[1] ), 3, Scalar(0,255,0), 1, CV_AA );
+        circle( centrs, Point2f( corrs[i].second[0], corrs[i].second[1] )
+                +Point2f(window_width,0), 3, Scalar(0,255,0), 1, CV_AA );
+    }
+
+    // Draw red circles around the centroids
+    circle( centrs, Point2f(centroids.first[0],centroids.first[1]), 3, Scalar(0,0,255), 1, CV_AA );
+    circle( centrs, Point2f(centroids.second[0],centroids.second[1])+Point2f(window_width,0), 3, Scalar(0,0,255), 1, CV_AA );
+    imshow("Centroids", centrs);
+
+    waitKey(0);
+
+    destroyWindow( "Matching Correspondences" );
+    destroyWindow( "SIFT matches" );
+    destroyWindow( "Centroids" );
+
+    waitKey(10);
 
     return corrs;
 
@@ -702,6 +752,7 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
         printf( "Second %d: (%f,%f,%f)\n", i, corrs[i].second[0], corrs[i].second[1], z2 );
     }
 
+    printf(" corrs.size() = %u\n", corrs.size() );
     // first
     centr1[0] /= corrs.size();
     centr1[1] /= corrs.size();
@@ -712,6 +763,7 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
     centr2[2] /= corrs.size();
 
     match centroids( centr1, centr2 );
+
 #if 0
     printf( "\nCorrespondence points in Image 1\n" );
     for( int i = 0; i < (int)corrs.size(); i++ ) 
@@ -721,19 +773,6 @@ match calcCentroids( const matchList& corrs, const Mat& img1, const Mat& img2 ) 
         printf( "%d: (%f,%f,%f)\n", i, corrs[i].second[0], corrs[i].second[1], z2 );
 #endif
 
-    // Put both images side by side in one image
-    Mat rslt = joinFrames( img1, img2 );
-
-    // Draw green circles around the correspondences in each image
-    for( int i = 0; i < (int)corrs.size(); i++ ) {
-        circle( rslt, Point2f( corrs[i].first[0], corrs[i].first[1] ), 3, Scalar(0,255,0), 1, CV_AA );
-        circle( rslt, Point2f( corrs[i].second[0], corrs[i].second[1] )
-                +Point2f(window_width,0), 3, Scalar(0,255,0), 1, CV_AA );
-    }
-
-    // Draw red circles around the centroids
-    circle( rslt, Point2f(centr1[0],centr1[1]), 3, Scalar(0,0,255), 1, CV_AA );
-    circle( rslt, Point2f(centr2[0],centr2[1])+Point2f(window_width,0), 3, Scalar(0,0,255), 1, CV_AA );
 
     printf("\nCentroid 1 (x,y,z) = (%f,%f,%f)\n", centr1[0], centr1[1], centr1[2]);
     printf("Centroid 2 (x,y,z) = (%f,%f,%f)\n\n", centr2[0], centr2[1], centr2[2]);
@@ -749,20 +788,20 @@ void calcRotation( match centr, matchList corrs ) {
     // This is retarded... Need to restructure
     for( int pt = 0; pt < corrs.size(); pt++ ) {
         // first point cloud
-        float x = corrs[pt].first[0]; 
-        float y = corrs[pt].first[1];
+        float x = corrs[pt].first[0] / 640.; 
+        float y = corrs[pt].first[1] / 480.;
         //float d = (float)depthCV[0].at<short>( (int)x, (int)y );
-        float d = getDepth( 0, (int)x, (int)y );
-        P.at<float>(0,pt) = x-centr.first[0]; 
-        P.at<float>(1,pt) = y-centr.first[1]; 
+        float d = getDepth( 0, (int)x, (int)y ) / 2048.;
+        P.at<float>(0,pt) = x-centr.first[0] / 640.; 
+        P.at<float>(1,pt) = y-centr.first[1] / 480.; 
         P.at<float>(2,pt) = d; 
         // second point cloud
-        float x2 = corrs[pt].second[0]; 
-        float y2 = corrs[pt].second[1];
+        float x2 = corrs[pt].second[0] / 640.; 
+        float y2 = corrs[pt].second[1] / 480.;
         //float d2 = (float)depthCV[1].at<short>( (int)x2, (int)y2 );
-        float d2 = getDepth( 1, (int)x2, (int)y2 );
-        Q.at<float>(0,pt) = x2-centr.second[0]; 
-        Q.at<float>(1,pt) = y2-centr.second[1]; 
+        float d2 = getDepth( 1, (int)x2, (int)y2 ) / 2048.;
+        Q.at<float>(0,pt) = x2-centr.second[0] / 640.; 
+        Q.at<float>(1,pt) = y2-centr.second[1] / 480.; 
         Q.at<float>(2,pt) = d2; 
     }
 
@@ -804,32 +843,41 @@ void calcRotation( match centr, matchList corrs ) {
 
     // translations ( first point cloud to second )
     float x = centroids.second[0]-centroids.first[0]; 
+    x /= 640.; 
     float y = centroids.second[1]-centroids.first[1]; 
+    y /= 480.;
     float z = centroids.second[2]-centroids.first[2]; 
+    z /= 2048.;
 
-	// Make the complete transformation matrix ( rotation + translation ) 'press a'
+    // Make the complete transformation matrix ( rotation + translation ) 'press a'
     float rtdata[16] = { r.at<float>(0,0), r.at<float>(0,1), r.at<float>(0,2), x,
-                       r.at<float>(1,0), r.at<float>(1,1), r.at<float>(1,2), y,
-                       r.at<float>(2,0), r.at<float>(2,1), r.at<float>(2,2), z,
-                       0, 0, 0, 1 };
+        r.at<float>(1,0), r.at<float>(1,1), r.at<float>(1,2), y,
+        r.at<float>(2,0), r.at<float>(2,1), r.at<float>(2,2), z,
+        0, 0, 0, 1 };
     Mat RT( 4, 4, CV_32F, rtdata );
-    rottrans = RT;
-   
-	// Make the rotation matrix 'press r'
-    float rdata[16] = { r.at<float>(0,0), r.at<float>(0,1), r.at<float>(0,2), 0,
-                       r.at<float>(1,0), r.at<float>(1,1), r.at<float>(1,2), 0,
-                       r.at<float>(2,0), r.at<float>(2,1), r.at<float>(2,2), 0,
-                       0, 0, 0, 1 };
-    Mat R( 4, 4, CV_32F, rdata );
-    rot = R;
+    rottrans = RT.clone();
+    printf("rottrans: "); 
+    printMat(rottrans); 
 
-	// Make the translation matrix 'press t'
+    // Make the rotation matrix 'press r'
+    float rdata[16] = { r.at<float>(0,0), r.at<float>(0,1), r.at<float>(0,2), 0,
+        r.at<float>(1,0), r.at<float>(1,1), r.at<float>(1,2), 0,
+        r.at<float>(2,0), r.at<float>(2,1), r.at<float>(2,2), 0,
+        0, 0, 0, 1 };
+    Mat R( 4, 4, CV_32F, rdata );
+    rot = R.clone();
+    printf("rot: "); 
+    printMat(rot); 
+
+    // Make the translation matrix 'press t'
     float tdata[16] = { 1, 0, 0, x, 
-                        0, 1, 0, y,
-                        0, 0, 1, z,
-                        0, 0, 0, 1 };
+        0, 1, 0, y,
+        0, 0, 1, z,
+        0, 0, 0, 1 };
     Mat T( 4, 4, CV_32F, tdata );
-    trans = T;
+    trans = T.clone();
+    printf("trans: "); 
+    printMat(trans); 
 }
 
 void printMat( const Mat& A ) {
@@ -844,6 +892,15 @@ void printMat( const Mat& A ) {
             printf( "%f ", A.at<float>(i,j) );
         }
     }
+    for(int i = 0; i < A.rows; i++) {
+        if(i > 0 && i < A.rows) {
+            printf("|\n");
+            printf("| ");
+        }
+        for(int j = 0; j < A.cols; j++) {
+            printf( "%f ", A.data[i*A.step + j] );
+        }
+    }
     printf("|\n");
 }
 
@@ -851,32 +908,32 @@ void printMat( const Mat& A ) {
 // way to do this...
 float getDepth( int cam, int x, int y ) {
 
-    float d = (float)depthCV[cam].at<short>(x,y);
-    printf("short, float = %d, %f\n",depthCV[cam].at<short>(x,y), d);
+    float d = (float)(depthCV[cam].at<short>(x,y) & MASK);
+    printf("short, float = %d, %f\n",depthCV[cam].at<short>(x,y) & MASK, d);
 
     if( d >= 2047 ) 
-        d = (float)depthCV[cam].at<short>(x,y+1);
+        d = (float)(depthCV[cam].at<short>(x,y+1) & MASK);
 
     if( d >= 2047 ) 
-        d = (float)depthCV[cam].at<short>(x,y-1);
+        d = (float)(depthCV[cam].at<short>(x,y-1) & MASK);
 
     if( d >= 2047 ) 
-        d = (float)depthCV[cam].at<short>(x+1,y);
+        d = (float)(depthCV[cam].at<short>(x+1,y) & MASK);
 
     if( d >= 2047 ) 
-        d = (float)depthCV[cam].at<short>(x-1,y);
+        d = (float)(depthCV[cam].at<short>(x-1,y) & MASK);
 
     if( d >= 2047 )
-        d = (float)depthCV[cam].at<short>(x-1,y-1);
+        d = (float)(depthCV[cam].at<short>(x-1,y-1) & MASK);
 
     if( d >= 2047 )
-        d = (float)depthCV[cam].at<short>(x-1,y+1);
+        d = (float)(depthCV[cam].at<short>(x-1,y+1) & MASK);
 
     if( d >= 2047 )
-        d = (float)depthCV[cam].at<short>(x+1,y-1);
+        d = (float)(depthCV[cam].at<short>(x+1,y-1) & MASK);
 
     if( d >= 2047 )
-        d = (float)depthCV[cam].at<short>(x+1,y+1);
+        d = (float)(depthCV[cam].at<short>(x+1,y+1) & MASK);
 
     return d;
 }
