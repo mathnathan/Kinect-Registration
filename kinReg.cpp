@@ -292,7 +292,7 @@ void cbRender() {
     // Now draw the depth and color buffers
 
     glPointSize( 1 );
-#if 0
+#if 1
     glVertexPointer( 3, GL_SHORT, 0, xyz );
 
 #else 
@@ -322,11 +322,11 @@ void cbRender() {
     //glRotatef(180, 0, 0, 1);
     //glRotatef(90,0,1,0);
     transformation();
-    //loadVertexMatrix();
+    loadVertexMatrix();
     //glRotatef(90,0,1,0);
     glDrawArrays(GL_POINTS, 0, window_width*window_height);
     glPopMatrix();
-    //loadVertexMatrix();
+    loadVertexMatrix();
     glDrawArrays(GL_POINTS, window_width*window_height, window_width*window_height);
     glPopMatrix();
 
@@ -498,7 +498,7 @@ void transformation() {
         glMultMatrixf( mat );
     }
     else if( transform_mode == full_transform ) {
-        glMultTransposeMatrixf( (GLfloat*)rottrans.data );
+        glMultMatrixf( (GLfloat*)rottrans.data );
     }
     else if( transform_mode == rotation ) {
         glMultMatrixf( (GLfloat*)rot.data );
@@ -788,20 +788,18 @@ void calcRotation( match centr, matchList corrs ) {
     // This is retarded... Need to restructure
     for( int pt = 0; pt < corrs.size(); pt++ ) {
         // first point cloud
-        float x = corrs[pt].first[0] / 640.; 
-        float y = corrs[pt].first[1] / 480.;
-        //float d = (float)depthCV[0].at<short>( (int)x, (int)y );
-        float d = getDepth( 0, (int)x, (int)y ) / 2048.;
-        P.at<float>(0,pt) = x-centr.first[0] / 640.; 
-        P.at<float>(1,pt) = y-centr.first[1] / 480.; 
+        float x = corrs[pt].first[0]; 
+        float y = corrs[pt].first[1];
+        float d = getDepth( 0, (int)x, (int)y );
+        P.at<float>(0,pt) = x-centr.first[0]; 
+        P.at<float>(1,pt) = y-centr.first[1]; 
         P.at<float>(2,pt) = d; 
         // second point cloud
-        float x2 = corrs[pt].second[0] / 640.; 
-        float y2 = corrs[pt].second[1] / 480.;
-        //float d2 = (float)depthCV[1].at<short>( (int)x2, (int)y2 );
-        float d2 = getDepth( 1, (int)x2, (int)y2 ) / 2048.;
-        Q.at<float>(0,pt) = x2-centr.second[0] / 640.; 
-        Q.at<float>(1,pt) = y2-centr.second[1] / 480.; 
+        float x2 = corrs[pt].second[0]; 
+        float y2 = corrs[pt].second[1];
+        float d2 = getDepth( 1, (int)x2, (int)y2 );
+        Q.at<float>(0,pt) = x2-centr.second[0]; 
+        Q.at<float>(1,pt) = y2-centr.second[1]; 
         Q.at<float>(2,pt) = d2; 
     }
 
@@ -843,9 +841,9 @@ void calcRotation( match centr, matchList corrs ) {
 
     // translations ( first point cloud to second )
     float x = centroids.second[0]-centroids.first[0]; 
-    x /= 640.; 
+    x /= window_width;
     float y = centroids.second[1]-centroids.first[1]; 
-    y /= 480.;
+    y /= window_height;
     float z = centroids.second[2]-centroids.first[2]; 
     z /= 2048.;
 
