@@ -249,7 +249,7 @@ void cbRender() {
     if ( DRAW_SPHERES ) {
         //-------------------------------------------
         // Green sphere at first centroid
-    //    glMatrixMode( GL_MODELVIEW );
+    	// glMatrixMode( GL_MODELVIEW );
         glPushMatrix();
         glColor3f(0,1,0);
         loadVertexMatrix();
@@ -785,30 +785,66 @@ void calcRotation( match centr, matchList corrs ) {
     Mat P = Mat::ones( 3, corrs.size(), CV_32F );
     Mat Q = Mat::ones( 3, corrs.size(), CV_32F );
 
+    float fx = 594.21f;
+    float fy = 591.04f;
+    float a = -0.0030711f;
+    float b = 3.3309495f;
+    float cx = 339.5f;
+    float cy = 242.7f;
+
+    GLfloat mat1[16] = {
+    1/fx,     0,  0, 0,
+    0,    -1/fy,  0, 0,
+    0,       0,  0, a,
+    -cx/fx, cy/fy, -1, b
+    };
+
+    GLfloat mat2[16] = {
+    1/fx,   0,    0,  -cx/fx,
+     0,   -1/fy,  0,   cy/fy,
+     0,     0,    0,    -1,
+     0,     0,    a,     b
+    };
+
+    Mat proj( 4, 4, CV_32F, mat1 );
+
     // This is retarded... Need to restructure
     for( int pt = 0; pt < corrs.size(); pt++ ) {
+
+        float xyzw[4] = {0,0,0,1};
+        float xyzw2[4] = {0,0,0,1};
+
         // first point cloud
-        float x = corrs[pt].first[0]; 
-        float y = corrs[pt].first[1];
-        float d = getDepth( 0, (int)x, (int)y );
-        P.at<float>(0,pt) = x-centr.first[0]; 
-        P.at<float>(1,pt) = y-centr.first[1]; 
-        P.at<float>(2,pt) = d; 
+        xyzw[0] = corrs[pt].first[0]; 
+        xyzw[1] = corrs[pt].first[1];
+        xyzw[2] = getDepth( 0, (int)xyzw[0], (int)xyzw[1] );
+        Mat point( 4, 1, CV_32F, xyzw );
+
+        point = proj*point;
+
+        P.at<float>(0,pt) = point.at<float>(0,0)-centr.first[0]; 
+        P.at<float>(1,pt) = point.at<float>(1,0)-centr.first[1]; 
+        P.at<float>(2,pt) = point.at<float>(2,0); 
+
         // second point cloud
-        float x2 = corrs[pt].second[0]; 
-        float y2 = corrs[pt].second[1];
-        float d2 = getDepth( 1, (int)x2, (int)y2 );
-        Q.at<float>(0,pt) = x2-centr.second[0]; 
-        Q.at<float>(1,pt) = y2-centr.second[1]; 
-        Q.at<float>(2,pt) = d2; 
+        xyzw2[0] = corrs[pt].second[0]; 
+        xyzw2[1] = corrs[pt].second[1];
+        xyzw2[2] = getDepth( 1, (int)xyzw2[0], (int)xyzw2[1] );
+        Mat point2( 4, 1, CV_32F, xyzw2 );
+
+        point2 = proj*point2;
+
+        Q.at<float>(0,pt) = point2.at<float>(0,0)-centr.second[0]; 
+        Q.at<float>(1,pt) = point2.at<float>(1,0)-centr.second[1]; 
+        Q.at<float>(2,pt) = point2.at<float>(2,0); 
     }
 
     Mat Qt;
     transpose( Q, Qt );
     Mat PQt = P*Qt;
 
-    printf(" P.rows = %d\n", P.rows );
-    printf(" P.cols = %d\n\n", P.cols );
+    printf("P.rows = %d\n", P.rows );
+    printf("P.cols = %d\n\n", P.cols );
 
     printMat( P );	
 
