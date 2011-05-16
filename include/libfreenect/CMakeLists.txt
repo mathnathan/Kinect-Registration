@@ -38,8 +38,6 @@ cmake_minimum_required(VERSION 2.6)
 # Project declaration and options
 ######################################################################################
 
-message("Preparing to build libfreenect...\n")
-
 PROJECT(libfreenect)
 
 set (PROJECT_VER_MAJOR 0)
@@ -50,9 +48,13 @@ set (PROJECT_VER
 set (PROJECT_APIVER 
   "${PROJECT_VER_MAJOR}.${PROJECT_VER_MINOR}")
 
+OPTION(BUILD_EXAMPLES "Build example programs" ON)
+OPTION(BUILD_FAKENECT "Build fakenect mock library" ON)
 OPTION(BUILD_C_SYNC "Build c synchronous library" ON)
 OPTION(BUILD_CPP "Build C++ Library (currently header only)" ON)
 OPTION(BUILD_CV "Build OpenCV wrapper" ON)
+OPTION(BUILD_AS3_SERVER "Build the Actionscript 3 Server Example" OFF)
+OPTION(BUILD_PYTHON "Build Python extension" OFF)
 IF(PROJECT_OS_LINUX)
 	OPTION(BUILD_CPACK "Build an RPM or DEB using CPack" OFF)
 ENDIF(PROJECT_OS_LINUX)
@@ -97,7 +99,6 @@ include_directories (${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # libfreenect.h includes libusb.h, so everyone needs this too
 include_directories(${LIBUSB_1_INCLUDE_DIRS})
-message("LIBUSB_1_INCLUDE_DIRS: " ${LIBUSB_1_INCLUDE_DIRS}) 
 
 if(WIN32)
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}/platform/windows")
@@ -107,13 +108,33 @@ endif()
 # Add library project
 add_subdirectory (src)
 
-# Build Libraries
+# Add examples
+IF(BUILD_EXAMPLES)
+  add_subdirectory (examples)
+ENDIF()
+
+IF(BUILD_FAKENECT)
+  add_subdirectory (fakenect)
+ENDIF()
+
 IF(BUILD_C_SYNC)
   add_subdirectory (wrappers/c_sync)
 ENDIF()
 
+IF(BUILD_CPP)
+  add_subdirectory (wrappers/cpp)
+ENDIF()
+
 IF(BUILD_CV)
   add_subdirectory (wrappers/opencv)
+ENDIF()
+
+IF(BUILD_AS3_SERVER)
+  add_subdirectory(wrappers/actionscript)
+ENDIF()
+
+IF(BUILD_PYTHON)
+  add_subdirectory (wrappers/python)
 ENDIF()
 
 ######################################################################################
@@ -126,8 +147,8 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/UninstallTarget.cmake"
   IMMEDIATE @ONLY)
 
-#add_custom_target(uninstall
-#  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/UninstallTarget.cmake)
+add_custom_target(uninstall
+  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/UninstallTarget.cmake)
 
 # Create Debian/RPM Packages
 # after make, use "fakeroot cpack" in the build Dir to complete
@@ -154,9 +175,7 @@ IF ( BUILD_CPACK )
   INSTALL(FILES "include/libfreenect.h" DESTINATION ${PROJECT_INCLUDE_INSTALL_DIR})
   INSTALL(FILES "APACHE20" DESTINATION "share/doc/${CPACK_PACKAGE_NAME}")
   INSTALL(FILES "GPL2" DESTINATION "share/doc/${CPACK_PACKAGE_NAME}")
-  INSTALL(FILES "README.txt" DESTINATION "share/doc/${CPACK_PACKAGE_NAME}")
-  INSTALL(FILES "doc/kinect_protocol.txt" DESTINATION "share/doc/${CPACK_PACKAGE_NAME}")
+  INSTALL(FILES "README.asciidoc" DESTINATION "share/doc/${CPACK_PACKAGE_NAME}")
 
 ENDIF ( BUILD_CPACK )
 
-SET( LIBFREENECT_BUILT TRUE CACHE INTERNAL "")
