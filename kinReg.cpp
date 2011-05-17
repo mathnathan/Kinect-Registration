@@ -31,6 +31,7 @@ Mat P, Q, trans, rot;
 vector< Vec3f > P_pts, Q_pts;
 enum Points{ P_POINTS, Q_POINTS, NONE };
 Points POINTS = NONE;
+Vec3f translationVector;
 
 // Window Size and Position
 const int window_width = 640, window_height = 480;
@@ -48,7 +49,7 @@ void cbKeyPressed( unsigned char key, int x, int y);
 void cbMouseEvent( int event, int x, int y, int flags, void* param );
 
 // Handy functions to call in the render function
-void transformation();
+void transformation( int cam );
 void loadVertexMatrix();
 void loadRGBMatrix();
 void noKinectQuit();
@@ -125,35 +126,39 @@ void cbRender() {
     glEnable( GL_DEPTH_TEST );
     glPushMatrix();
         glScalef( zoom,zoom,1 );
-        glTranslatef( 0,0,-3.5 );
+        //glTranslatef( 0,0,-3.5 );
+        gluLookAt( 0, 0, 3.5, 0, 0, 0, 0, 1.0, 0 );
         glRotatef( rotangles[0], 1,0,0 );
         glRotatef( rotangles[1], 0,1,0 );
-        glTranslatef( 0,0,1.5 );
+        //glTranslatef( 0,0,1.5 );
         draw_axes();
 
         glEnableClientState( GL_VERTEX_ARRAY );
         glEnableClientState( GL_COLOR_ARRAY );
         glPointSize( 2 );
-        //--------Camera 0-----------
+        //--------Camera 0 (P)-----------
         loadBuffers( 0, indices, xyz, rgb ); 
         glVertexPointer( 3, GL_SHORT, 0, xyz );
         glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
     glPushMatrix();
+        // transform points P to points Q
+        transformation( 0 );
         loadVertexMatrix();
         glDrawArrays(GL_POINTS, 0, window_width*window_height);
     glPopMatrix();
-        //--------Camera 1-----------
+        //--------Camera 1 (Q)-----------
         loadBuffers( 1, indices, xyz, rgb ); 
         glVertexPointer( 3, GL_SHORT, 0, xyz );
         glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
     glPushMatrix();
-        transformation();
+        transformation( 1 );
         loadVertexMatrix();
         glDrawArrays( GL_POINTS, 0, window_width*window_height );
     glPopMatrix();
     glPopMatrix();
 
     displayCVcams();
+    glFlush();
     glutSwapBuffers();
     glDisable( GL_DEPTH_TEST );
 }
@@ -165,8 +170,11 @@ void cbKeyPressed( unsigned char key, int x, int y ) {
         glutDestroyWindow( GLwindow );
         exit( 0 );
     }
-    else if( key == 'p' )
+    else if( key == 'p' ) {
         procrustes( P_pts, Q_pts, trans, rot ); 
+        P_pts.clear();
+        Q_pts.clear();
+    }
     else if( key == 'r' ) 
         transform_mode = rotation;
     else if( key == 't' ) 
@@ -433,6 +441,7 @@ match calculateCentroids( const Mat& verts1, const Mat& verts2 ) {
 void procrustes( const vector< Vec3f >& P_pts,
                  const vector< Vec3f >& Q_pts,
                  Mat& trans, Mat& rot ) {
+    printf("\n\n------------ENTERING procrustes()------------\n");
 
     if( P_pts.size() == 0 || Q_pts.size() == 0 ) {
         printf("There are no correspondences for Registration...\n");
@@ -440,54 +449,75 @@ void procrustes( const vector< Vec3f >& P_pts,
     }
 
     P = convert_vector2Mat( P_pts );
-    printf("Vector converted to Mat OUTSIDE function:");
+    printf("P:\n");
     printMat( P );
     Q = convert_vector2Mat( Q_pts );
+    printf("Q:\n");
+    printMat( Q );
     centroids = calculateCentroids( P, Q );
 
+#if 0
     // Translation ( first point cloud to second )
-    float x = centroids.second[0]-centroids.first[0];
-    float y = centroids.second[1]-centroids.first[1]; 
-    float z = centroids.second[2]-centroids.first[2]; 
+    translationVector[0] = centroids.second[0]-centroids.first[0];
+    translationVector[1] = centroids.second[1]-centroids.first[1]; 
+    translationVector[2] = centroids.second[2]-centroids.first[2]; 
 
-    float tdata[16] = { 1, 0, 0, 0,
-              0, 1, 0, 0,
-              0, 0, 1, 0,
-              x, y, z, 1 }; 
-    trans = Mat( 4, 4, CV_32F, tdata ).clone();
-
-    printf( "trans:" );
+    // Column major (OpenGL stores matrices in column major order)
+    float transCpy[16] = { 1, 0, 0, 0,
+                        0, 1, 0, 0,
+                        0, 0, 1, 0,
+                        0, 0, 0, 1 }; 
+    trans = Mat( 4, 4, CV_32F, transCpy ).clone();
+    printf(" trans:\n");
     printMat( trans );
+#endif 
 
-    // Rotation ( first point cloud to second ) 
+    // Rotation ( Put them both at the origin ) 
+    for( int pt = 0; pt < P.cols; pt++ ) {
+        P.at<float>(0,pt) -= centroids.first[0]; 
+        P.at<float>(1,pt) -= centroids.first[1]; 
+        P.at<float>(2,pt) -= centroids.first[2]; 
+    }
+    for( int pt = 0; pt < Q.cols; pt++ ) {
+        Q.at<float>(0,pt) -= centroids.second[0]; 
+        Q.at<float>(1,pt) -= centroids.second[1]; 
+        Q.at<float>(2,pt) -= centroids.second[2]; 
+    }
     Mat PQt = P*Q.t();
     SVD svd( PQt );
-    rot = svd.u*svd.vt;
+    Mat rotMat = svd.u*svd.vt;
 
-    float rdata[16] = { rot.at<float>(0,0), rot.at<float>(0,1), rot.at<float>(0,2), 0,
-              rot.at<float>(1,0), rot.at<float>(1,1), rot.at<float>(1,2), 0,
-              rot.at<float>(2,0), rot.at<float>(2,1), rot.at<float>(2,2), 0,
-              0, 0, 0, 1 }; 
-    rot = Mat( 4, 4, CV_32F, rdata ).clone();
-
-    printf( "rot:" );
+    // Column major (OpenGL stores matrices in column major order)
+    float rotCpy[16] = { rotMat.at<float>(0,0), rotMat.at<float>(0,1), rotMat.at<float>(0,2), 0,
+                       rotMat.at<float>(1,0), rotMat.at<float>(1,1), rotMat.at<float>(1,2), 0,
+                       rotMat.at<float>(2,0), rotMat.at<float>(2,1), rotMat.at<float>(2,2), 0,
+                       0, 0, 0, 1 }; 
+    rot = Mat( 4, 4, CV_32F, rotCpy ).clone();
+    printf(" rot:\n");
     printMat( rot );
 
+    printf("\n\n------------LEAVING procrustes()------------\n");
 }
 
-void transformation() {
+void transformation( int cam ) {
 
     if( transform_mode == none )
         return;
-    else if( transform_mode == rotation ) {
+    else if( transform_mode == rotation && cam == 0 ) {
         glMultMatrixf( (GLfloat*)rot.data );
     }
-    else if( transform_mode == translation ) {
-        glMultMatrixf( (GLfloat*)trans.data ); 
+    else if( transform_mode == translation && cam == 0 ) {
+        glTranslatef( -centroids.first[0], -centroids.first[1], -centroids.first[2] );
     }
-    else if( transform_mode == full_transform ) {
-        glMultMatrixf( (GLfloat*)trans.data );
+    else if( transform_mode == translation && cam == 1 ) {
+        glTranslatef( -centroids.second[0], -centroids.second[1], -centroids.second[2] );
+    }
+    else if( transform_mode == full_transform && cam == 0 ) {
         glMultMatrixf( (GLfloat*)rot.data );
+        glTranslatef( -centroids.first[0], -centroids.first[1], -centroids.first[2] );
+    }
+    else if( transform_mode == full_transform && cam == 1 ) {
+        glTranslatef( -centroids.second[0], -centroids.second[1], -centroids.second[2] );
     }
 
 }
@@ -498,7 +528,6 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
     switch( event ) {
         case CV_EVENT_LBUTTONDOWN:
             if( col <= 640 ) {
-                // See the transformed points
                 printf(" Click in P ( %d, %d, %f )\n", col, row, getDepth(0,row,col) );
                 if( POINTS == NONE ) {
                     P_pts.push_back( Vec3f( col, row, getDepth(0,row,col) ) );
@@ -538,10 +567,9 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
                 POINTS = NONE;
             }
             else {
-                // See the transformed points
-                printf(" Click in Q ( %d, %d, %f )\n", col-640, row, getDepth(0,row,col-640) );
+                printf(" Click in Q ( %d, %d, %f )\n", col-640, row, getDepth(1,row,col-640) );
                 if( POINTS == NONE ) {
-                    Q_pts.push_back( Vec3f( col-640, row, getDepth(0,row,col-640) ) );
+                    Q_pts.push_back( Vec3f( col-640, row, getDepth(1,row,col-640) ) );
                     POINTS = Q_POINTS;
                     break;
                 }
@@ -551,7 +579,7 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
                     POINTS = NONE;
                     break;
                 }
-                Q_pts.push_back( Vec3f( col-640, row, getDepth(0,row,col-640) ) );
+                Q_pts.push_back( Vec3f( col-640, row, getDepth(1,row,col-640) ) );
                 float Pz = P_pts.back()[2];
                 float Qz = Q_pts.back()[2];
                 if( Pz >= 2047 || Pz <= 0 || Qz >= 2047 || Qz <= 0 ) {
@@ -620,30 +648,27 @@ Vec3f transformPoint( const Vec3f& pt ) {
     float b = 3.3309495f;
     float cx = 339.5f;
     float cy = 242.7f;
-#if 1
     float data[16] = {
         1/fx,     0,  0, -cx/fx,
         0,    -1/fy,  0,  cy/fy,
         0,       0,   0,   -1,
         0,       0,   a,    b
     };
-#else
-    float data[16] = {
-        1/fx,    0,   0,  0,
-        0,    -1/fy,  0,  0,
-        0,       0,   0,  a,
-      -cx/fx,  cy/fy,-1,  b
-    };
-#endif
 
     Mat transform( 4, 4, CV_32F, data );
     printf("Transformation Matrix:\n");
     printMat( transform );
     Mat tmp = transform*point;
-    Vec3f transformedPoint( tmp.at<float>(0,0), tmp.at<float>(0,1), tmp.at<float>(0,2) );
-    printf(" transformedPoint = ( %f, %f, %f )", transformedPoint[0],
-                                               transformedPoint[1], 
-                                               transformedPoint[2] );
+    printf("Transformation Matrx * Point:\n");
+    printMat( tmp );
+    float w = tmp.at<float>(0,3);
+    float x = tmp.at<float>(0,0) / w;
+    float y = tmp.at<float>(0,1) / w;
+    float z = tmp.at<float>(0,2) / w;
+    Vec3f transformedPoint( x, y, z );
+    printf(" Perspective Division = ( %f, %f, %f )", transformedPoint[0],
+                                                 transformedPoint[1], 
+                                                 transformedPoint[2] );
     
     printf("\n----- LEAVING transformPoint() -------\n\n");
     return transformedPoint;
