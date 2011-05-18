@@ -13,10 +13,27 @@
 #include <vector>
 #include <math.h>
 
+/*
+ * Kinect registration program
+ *
+ * All of this code has been commented for use with the Viz Lab at FSU.
+ * Eventually this entire project will be refactored, modularized, and 
+ * compressed into something like two function calls getCorrespondences(), and 
+ * register() (currently depends on OpenCV. Should change this in the 
+ * future). All of the procrustes analysis should be in their own libraries
+ * and the OpenGL visualization can just be an optional driver on top, 
+ * but if the registration is separated and just returns the transformations
+ * then it can be more easily incorporated into other projects.
+ */ 
+
 using namespace cv;
 
+// Store the correspondences and centroids
+// Vec3f is an OpenCV data structure
 typedef std::pair< Vec3f, Vec3f > match;
 
+// Used for interactive transformations 
+// see transformation() and KeyPressed()
 enum Transform_Mode{ rotation, translation, full_transform, none };
 Transform_Mode transform_mode = none;
 
@@ -27,11 +44,13 @@ int mx=-1,my=-1;        // Prevous mouse coordinates
 int rotangles[2] = {0}; // Panning angles
 float zoom = 1;         // zoom factor
 match centroids;
-Mat P, Q, trans, rot;
-vector< Vec3f > P_pts, Q_pts;
+Mat P, Q, trans, rot; // P and Q store the points for procrustes analysis
+vector< Vec3f > P_pts, Q_pts; // This is how they're collected
+// NOTE: Simplify correspondence containers above
+
+// This is used for collecting Correspondences. It keeps track of where the points were just collected from.
 enum Points{ P_POINTS, Q_POINTS, NONE };
 Points POINTS = NONE;
-Vec3f translationVector;
 
 // Window Size and Position
 const int window_width = 640, window_height = 480;
@@ -49,27 +68,30 @@ void cbKeyPressed( unsigned char key, int x, int y);
 void cbMouseEvent( int event, int x, int y, int flags, void* param );
 
 // Handy functions to call in the render function
-void transformation( int cam );
-void loadVertexMatrix();
-void loadRGBMatrix();
+void transformation( int cam ); // This applies the procrustes transformations
+void loadVertexMatrix(); // This applies the projection transformation
 void noKinectQuit();
 void draw_axes();
 void draw_line(Vec3b v1, Vec3b v2);
 
 // Computer Vision functions
-void displayCVcams();
-Mat joinFrames( const Mat& img1, const Mat& img2 );
+void displayCVcams(); // Calls joinFrames and displays the RGB images
+Mat joinFrames( const Mat& img1, const Mat& img2 ); // Puts images side by side
 Mat convert_vector2Mat( const vector< Vec3f > vec );
-Vec3f transformPoint( const Vec3f& pt );
+Vec3f transformPoint( const Vec3f& pt ); // Transforms pt from image space
+										 // to Kinect space
 match calculateCentroids( const Mat& verts1, const Mat& verts2 );
 void procrustes( const vector< Vec3f >&, const vector< Vec3f >&, Mat&, Mat& );
 
+// Collects the information from a (cameraIndx) Kinect
 void loadBuffers( int cameraIndx, 
         unsigned int indices[window_height][window_width], 
         short xyz[window_height][window_width][3], 
         unsigned char rgb[window_height][window_width][3] );
 
-// Computer Vision Functions
+// getDepth (poorly) attempts to ameliorate the bad depth measurements
+// by checking the neighbors in a 3x3 grid around a pixel which got a 
+// depth measurement > 2047
 float getDepth( int cam, int x, int y );
 void printMat( const Mat& A );
 
@@ -126,11 +148,9 @@ void cbRender() {
     glEnable( GL_DEPTH_TEST );
     glPushMatrix();
         glScalef( zoom,zoom,1 );
-        //glTranslatef( 0,0,-3.5 );
         gluLookAt( 0, 0, 3.5, 0, 0, 0, 0, 1.0, 0 );
         glRotatef( rotangles[0], 1,0,0 );
         glRotatef( rotangles[1], 0,1,0 );
-        //glTranslatef( 0,0,1.5 );
         draw_axes();
 
         glEnableClientState( GL_VERTEX_ARRAY );
@@ -141,8 +161,9 @@ void cbRender() {
         glVertexPointer( 3, GL_SHORT, 0, xyz );
         glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
     glPushMatrix();
-        // transform points P to points Q
+        // transform centroid of P to origin and rotate
         transformation( 0 );
+		// projection matrix (camera specific - Can be improved)
         loadVertexMatrix();
         glDrawArrays(GL_POINTS, 0, window_width*window_height);
     glPopMatrix();
@@ -151,6 +172,7 @@ void cbRender() {
         glVertexPointer( 3, GL_SHORT, 0, xyz );
         glColorPointer( 3, GL_UNSIGNED_BYTE, 0, rgb );
     glPushMatrix();
+		// translate centroid of Q to origin
         transformation( 1 );
         loadVertexMatrix();
         glDrawArrays( GL_POINTS, 0, window_width*window_height );
@@ -172,6 +194,10 @@ void cbKeyPressed( unsigned char key, int x, int y ) {
     }
     else if( key == 'p' ) {
         procrustes( P_pts, Q_pts, trans, rot ); 
+		// The correspondence arrays are flushed after the transformations
+		// are calculated. Just in case the registration attempt is poor 
+		// and you want to try again, you can just start collecting
+		// correspondences again without restarting the program
         P_pts.clear();
         Q_pts.clear();
     }
@@ -366,6 +392,7 @@ void draw_axes() {
 
 }
 
+// Puts two RGB images side by side in one Mat
 Mat joinFrames( const Mat& img1, const Mat& img2 ) {
 
     Mat rslt = Mat::zeros( img1.rows, img1.cols*2, img1.type());
@@ -380,6 +407,7 @@ Mat joinFrames( const Mat& img1, const Mat& img2 ) {
     return rslt;
 }
 
+// Display the joined frames in one window
 void displayCVcams() {
 
     Mat tmp = Mat::zeros( window_width, window_height, CV_8U );
@@ -456,23 +484,9 @@ void procrustes( const vector< Vec3f >& P_pts,
     printMat( Q );
     centroids = calculateCentroids( P, Q );
 
-#if 0
-    // Translation ( first point cloud to second )
-    translationVector[0] = centroids.second[0]-centroids.first[0];
-    translationVector[1] = centroids.second[1]-centroids.first[1]; 
-    translationVector[2] = centroids.second[2]-centroids.first[2]; 
-
-    // Column major (OpenGL stores matrices in column major order)
-    float transCpy[16] = { 1, 0, 0, 0,
-                        0, 1, 0, 0,
-                        0, 0, 1, 0,
-                        0, 0, 0, 1 }; 
-    trans = Mat( 4, 4, CV_32F, transCpy ).clone();
-    printf(" trans:\n");
-    printMat( trans );
-#endif 
-
-    // Rotation ( Put them both at the origin ) 
+    // To calculate the rotation we assume the centroids of their
+	// correspondences are aligned. So move the centroids of each
+	// collection of correspondences to the origin.
     for( int pt = 0; pt < P.cols; pt++ ) {
         P.at<float>(0,pt) -= centroids.first[0]; 
         P.at<float>(1,pt) -= centroids.first[1]; 
@@ -483,15 +497,17 @@ void procrustes( const vector< Vec3f >& P_pts,
         Q.at<float>(1,pt) -= centroids.second[1]; 
         Q.at<float>(2,pt) -= centroids.second[2]; 
     }
+	// Procrustes in 3 lines baby
     Mat PQt = P*Q.t();
     SVD svd( PQt );
     Mat rotMat = svd.u*svd.vt;
 
-    // Column major (OpenGL stores matrices in column major order)
+	// change the rotMat to column major (OpenGL stores matrices in column
+	// major order, while OpenCV row major, and add the extra column and row)
     float rotCpy[16] = { rotMat.at<float>(0,0), rotMat.at<float>(0,1), rotMat.at<float>(0,2), 0,
-                       rotMat.at<float>(1,0), rotMat.at<float>(1,1), rotMat.at<float>(1,2), 0,
-                       rotMat.at<float>(2,0), rotMat.at<float>(2,1), rotMat.at<float>(2,2), 0,
-                       0, 0, 0, 1 }; 
+                       	 rotMat.at<float>(1,0), rotMat.at<float>(1,1), rotMat.at<float>(1,2), 0,
+                       	 rotMat.at<float>(2,0), rotMat.at<float>(2,1), rotMat.at<float>(2,2), 0,
+                       	 0, 0, 0, 1 }; 
     rot = Mat( 4, 4, CV_32F, rotCpy ).clone();
     printf(" rot:\n");
     printMat( rot );
@@ -499,6 +515,7 @@ void procrustes( const vector< Vec3f >& P_pts,
     printf("\n\n------------LEAVING procrustes()------------\n");
 }
 
+// Apply certain transformations to each camera
 void transformation( int cam ) {
 
     if( transform_mode == none )
@@ -527,10 +544,13 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
 
     switch( event ) {
         case CV_EVENT_LBUTTONDOWN:
-            if( col <= 640 ) {
+			if( col <= 640 ) { // This is how it know which points you're
+							   // collecting (images side by side)
                 printf(" Click in P ( %d, %d, %f )\n", col, row, getDepth(0,row,col) );
                 if( POINTS == NONE ) {
+						// If first click, grab the point and
                     P_pts.push_back( Vec3f( col, row, getDepth(0,row,col) ) );
+						//  state that the last point grabbed was a point in P
                     POINTS = P_POINTS;
                     break;
                 }
@@ -540,9 +560,11 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
                     POINTS = NONE;
                     break;
                 }
+				// If not NONE and not P_POINTS must be Q_POINTS
                 P_pts.push_back( Vec3f( col, row, getDepth(0,row,col) ) );
                 float Pz = P_pts.back()[2];
                 float Qz = Q_pts.back()[2];
+				// Check if the depth measurements are bad, if so remove them
                 if( Pz >= 2047 || Pz <= 0 || Qz >= 2047 || Qz <= 0 ) {
                     printf( "\nDepths are bad! Erasing correspondence...\n");
                     P_pts.pop_back();
@@ -551,6 +573,7 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
                     break;
                 }
                 else {
+					// If the depths are good, transform the points and store them!
                     Vec3f transP_pt = transformPoint( P_pts.back() );
                     P_pts.pop_back();
                     P_pts.push_back( transP_pt );
@@ -567,6 +590,7 @@ void cbMouseEvent( int event, int col, int row, int flags, void* param ) {
                 POINTS = NONE;
             }
             else {
+				// SAME AS ABOVE JUST FOR OTHER SIDE OF WINDOW ( Q POINTS )
                 printf(" Click in Q ( %d, %d, %f )\n", col-640, row, getDepth(1,row,col-640) );
                 if( POINTS == NONE ) {
                     Q_pts.push_back( Vec3f( col-640, row, getDepth(1,row,col-640) ) );
@@ -674,4 +698,3 @@ Vec3f transformPoint( const Vec3f& pt ) {
     return transformedPoint;
 
 }
-

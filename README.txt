@@ -6,16 +6,12 @@ Author: Nathan Crock
 Date:    03/23/11    14:53
 
 
-
-
 ----------- Kinect Camera Registraion ------------
-
 
 
 OS SUPPORT: Only tested on Linux so far
 
             Ubuntu
-
 
 FILES:
         KinReg.cpp - The registraion program
@@ -30,9 +26,8 @@ DEPENDENCIES:   OpenCV
 
     DISCLAIMER:
 
-        I've bundled a slimmed down version of the libfreenect driver
-        into this package. Get it straight from git if you want all 
-        their samples and goodies. 
+		I've bundled a version of the libfreenect driver into this package. Get
+		it straight from git if you want all their samples and goodies. 
 
             libfreenect: https://github.com/OpenKinect/libfreenect
 
@@ -57,10 +52,12 @@ COMPILATION INSTRUCTIONS:
     cmake ..
     make
 
-    NOTE: It should "just work". Please let me know otherwise
+	NOTE: If you have the dependencies installed (to your root directories, or
+	their paths in your ldpaths), then it should "just work" in UBUNTU 10.04 and
+	10.10. Please let me know otherwise
 
 
--------------------------------------------------------------------------------
+---------------------------Simple Project Manual--------------------------------------
 
 
     This program is intended to register multiple point clouds
@@ -70,21 +67,30 @@ COMPILATION INSTRUCTIONS:
         NOTE: Only support for 2 cameras for now
 
     It begins by finding correspondences between the two cameras.
-    The correspondences are found using SIFT features.
+    The process is interactive.
 
-        Once KinReg is running, press 'f' to launch the feature finder.
+        Once KinReg is running, a window pops up containing both images side by side.
 
-    It will usually find a few hundred features, a lot of which are no good.
-    To filter out the bad features, the selection process is interactive.
-    It will display the correspondences one at a time by connecting two
-    small circles with a line.
+	All you do is click on pixels in both cameras the correspond to the same
+	point in world coordinates. Currently the process is rough, it can be
+	improved in the future by drawing circles around the points you click on
+	and adding colors to signify if the correspondence is accepted or not. If
+	both depth measurements for your clicks are found it stores the
+	correspondence. 
+	
+		If at least one of the corespondences is bad it deletes the match.
 
-        If it's a good features press 'y', if not press any other key
+	Once you've collected around 10 or so correspondences pushing 'p' applies 
+	procrustes analysis on the correspondences and calculates the transformation 
+	matrices. 
 
-    After you give it one good correspondence, it will filter out a
-    majority of the remaining bad correspondences, and the task will be much
-    easier. It usually takes about 30 seconds to find 20-30 good features.
+		Press 't' to see the translation of the centroids to the origin
 
-    I am currently still working on implenting a form of Procrustes Analysis
-    to do the translation and rotation of the point clouds, to align the
-    correspondences.
+		Press 'a' to see the translation and rotation applied to both point clouds
+
+======================================================================================
+
+	"Believing in the way, makes the way!"
+
+
+
