@@ -4,9 +4,9 @@
 #include <cv.h>
 #include <highgui.h>
 // -- libfreenect --
-#include "libfreenect.h"
-#include "libfreenect_sync.h"
-#include "libfreenect_cv.h"
+#include <libfreenect.h>
+#include <libfreenect_sync.h>
+#include <libfreenect_cv.h>
 // --- C++ ---
 #include <stdio.h>
 #include <fstream>
